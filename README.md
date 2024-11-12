@@ -56,6 +56,7 @@ func main() {
 The `Config` struct supports the following options:
 
 - `Level`: Log level (LevelDebug, LevelInfo, LevelWarn, LevelError)
+  - Logs below the configured level are discarded (at LevelInfo, no Debug log records will be saved)
 - `Name`: Base name for log files
 - `Directory`: Directory to store log files
 - `BufferSize`: Channel buffer size for handling burst loads
