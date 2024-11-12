@@ -13,11 +13,11 @@ const (
 )
 
 type Config struct {
-	Level      int    // LevelDebug, LevelInfo, LevelWarn, LevelError
-	Name       string // Base name for log files
-	Directory  string // Directory to store log files
-	BufferSize int    // Channel buffer size
-	MaxSizeMB  int64  // Max size of each log file in MB
+	Level      int    `json:"level" toml:"level"`             // LevelDebug, LevelInfo, LevelWarn, LevelError
+	Name       string `json:"name" toml:"name"`               // Base name for log files
+	Directory  string `json:"directory" toml:"directory"`     // Directory to store log files
+	BufferSize int    `json:"buffer_size" toml:"buffer_size"` // Channel buffer size
+	MaxSizeMB  int64  `json:"max_size_mb" toml:"max_size_mb"` // Max size of each log file in MB
 }
 
 func Init(ctx context.Context, cfg *Config) error {
