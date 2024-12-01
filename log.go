@@ -127,12 +127,18 @@ func initLogger(ctx context.Context, cfg *Config, level int) error {
 // log handles the actual logging operation including dropped log detection and disk space checks.
 // It buffers log records through a channel for asynchronous processing.
 func log(logCtx context.Context, level int, msg string, args ...any) {
+	// Check if logger is initialized and if log should be processed based on level
+	if !isInitialized.Load() || level < logLevel.Load().(int) {
+		return
+	}
+
 	// Check disk space before attempting to log
 	if err := checkDiskSpace(logCtx); err != nil {
 		droppedLogs.Add(1)
 		return
 	}
 
+	// Create log record from arguments
 	record := logRecord{
 		LogCtx:  logCtx,
 		Level:   level,
@@ -140,43 +146,75 @@ func log(logCtx context.Context, level int, msg string, args ...any) {
 		Args:    args,
 		Time:    time.Now(),
 	}
+
 	// Process any dropped logs before handling new log
 	currentDrops := droppedLogs.Load()
 	logged := loggedDrops.Load()
 	if currentDrops > logged {
-		// Check disk space and buffer space first
+		// Immediately update the logged drop counter to
+		// current dropped log counter to avoid conflict.
+		loggedDrops.Store(currentDrops)
+		dropRecord := logRecord{
+			LogCtx:  context.Background(),
+			Level:   LevelError,
+			Message: "Logs were dropped",
+			Args: []any{
+				"dropped_count", currentDrops - logged,
+				"total_dropped", currentDrops,
+			},
+			Time: time.Now(),
+		}
+
 		select {
-		case <-logCtx.Done():
-			return
+		case logChannel <- dropRecord:
 		default:
-			// Immediately update the logged drop counter to current dropped log counter
-			// to avoid conflict.
-			loggedDrops.Store(currentDrops)
-
-			record := logRecord{
-				LogCtx:  logCtx,
-				Level:   LevelError,
-				Message: "Logs were dropped",
-				Args: []any{
-					"dropped_count", currentDrops - logged,
-					"total_dropped", currentDrops,
-				},
-				Time: time.Now(),
-			}
-
-			select {
-			case logChannel <- record:
-			default:
-				droppedLogs.Add(1)
-			}
+			droppedLogs.Add(1)
 		}
 	}
 
 	// Process log record
 	select {
 	case logChannel <- record:
-	case <-logCtx.Done():
+	default:
 		droppedLogs.Add(1)
+	}
+}
+
+// processLogs is the main log processing loop running in a separate goroutine.
+// It handles the actual writing of logs and manages file rotation based on size.
+func processLogs() {
+	for {
+		select {
+		case <-processCtx.Done():
+			return
+		// Process each log record
+		case record, ok := <-logChannel:
+			if !ok {
+				return
+			}
+
+			log := logger.Load().(*slog.Logger)
+			attrs := []slog.Attr{
+				slog.Time("timestamp", record.Time),
+				slog.Any("args", record.Args),
+			}
+
+			// Check file size and rotate if needed
+			currentFileSize := currentSize.Load()
+			estimatedSize := currentFileSize + 512
+
+			if maxSizeMB > 0 && estimatedSize > maxSizeMB*1024*1024 {
+				if err := rotateLogFile(record.LogCtx); err != nil {
+					continue
+				}
+			}
+
+			log.LogAttrs(processCtx, slog.Level(record.Level), record.Message, attrs...)
+
+			if fi, err := os.Stat(currentFile.Load().(*os.File).Name()); err == nil {
+				currentSize.Store(fi.Size())
+			}
+		}
 	}
 }
 
@@ -189,26 +227,31 @@ func shutdownLogger(ctx context.Context) error {
 	if !isInitialized.Load() {
 		return nil
 	}
+	isInitialized.Store(false)
 
 	if processCancel != nil {
 		processCancel()
 	}
 
+	timer := time.NewTimer(500 * time.Millisecond)
+	defer timer.Stop()
+
 	select {
+	case <-timer.C:
+		// Half second grace period for processing remaining logs
 	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		close(logChannel)
-
-		if currentFile := currentFile.Load().(*os.File); currentFile != nil {
-			if err := currentFile.Close(); err != nil {
-				return fmt.Errorf("failed to close log file: %w", err)
-			}
-		}
-
-		isInitialized.Store(false)
-		return nil
+		// Immediate shutdown if context cancelled
 	}
+
+	close(logChannel)
+
+	if currentFile := currentFile.Load().(*os.File); currentFile != nil {
+		if err := currentFile.Close(); err != nil {
+			return fmt.Errorf("failed to close log file: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // generateLogFileName creates a unique log filename using timestamp with increasing precision.
@@ -308,49 +351,6 @@ func rotateLogFile(ctx context.Context) error {
 		})))
 
 		return nil
-	}
-}
-
-// processLogs is the main log processing loop running in a separate goroutine.
-// It handles the actual writing of logs and manages file rotation based on size.
-func processLogs() {
-	for {
-		select {
-		case <-processCtx.Done():
-			return
-		// Process each log record
-		case record, ok := <-logChannel:
-			if !ok {
-				return
-			}
-
-			select {
-			case <-record.LogCtx.Done():
-				continue
-			default:
-				log := logger.Load().(*slog.Logger)
-				attrs := []slog.Attr{
-					slog.Time("timestamp", record.Time),
-					slog.Any("args", record.Args),
-				}
-
-				// Check file size and rotate if needed
-				currentFileSize := currentSize.Load()
-				estimatedSize := currentFileSize + 512
-
-				if maxSizeMB > 0 && estimatedSize > maxSizeMB*1024*1024 {
-					if err := rotateLogFile(record.LogCtx); err != nil {
-						continue
-					}
-				}
-
-				log.LogAttrs(record.LogCtx, slog.Level(record.Level), record.Message, attrs...)
-
-				if fi, err := os.Stat(currentFile.Load().(*os.File).Name()); err == nil {
-					currentSize.Store(fi.Size())
-				}
-			}
-		}
 	}
 }
 

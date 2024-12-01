@@ -40,36 +40,24 @@ func Init(ctx context.Context, cfg *Config) error {
 // Debug logs a message at debug level with the given context and key-value pairs.
 // Messages are dropped if the logger's level is higher than debug or if logger is not initialized.
 func Debug(logCtx context.Context, msg string, args ...any) {
-	if !isInitialized.Load() || LevelDebug < logLevel.Load().(int) {
-		return
-	}
 	log(logCtx, LevelDebug, msg, args...)
 }
 
 // Info logs a message at info level with the given context and key-value pairs.
 // Messages are dropped if the logger's level is higher than info or if logger is not initialized.
 func Info(logCtx context.Context, msg string, args ...any) {
-	if !isInitialized.Load() || LevelInfo < logLevel.Load().(int) {
-		return
-	}
 	log(logCtx, LevelInfo, msg, args...)
 }
 
 // Warn logs a message at warning level with the given context and key-value pairs.
 // Messages are dropped if the logger's level is higher than warn or if logger is not initialized.
 func Warn(logCtx context.Context, msg string, args ...any) {
-	if !isInitialized.Load() || LevelWarn < logLevel.Load().(int) {
-		return
-	}
 	log(logCtx, LevelWarn, msg, args...)
 }
 
 // Error logs a message at error level with the given context and key-value pairs.
 // Messages are dropped if the logger's level is higher than error or if logger is not initialized.
 func Error(logCtx context.Context, msg string, args ...any) {
-	if !isInitialized.Load() || LevelError < logLevel.Load().(int) {
-		return
-	}
 	log(logCtx, LevelError, msg, args...)
 }
 
