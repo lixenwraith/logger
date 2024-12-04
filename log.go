@@ -50,7 +50,7 @@ var (
 
 // initLogger configures and starts the logging infrastructure with the provided configuration.
 // It handles initialization of files, channels, and background processing while ensuring thread safety.
-func initLogger(ctx context.Context, cfg *Config, level int) error {
+func initLogger(ctx context.Context, cfg *Config) error {
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -90,7 +90,7 @@ func initLogger(ctx context.Context, cfg *Config, level int) error {
 				processCancel()
 			}
 
-			logLevel.Store(level)
+			logLevel.Store(cfg.Level)
 
 			if newBufferSize != bufferSize.Load() {
 				oldChannel := logChannel
@@ -107,7 +107,7 @@ func initLogger(ctx context.Context, cfg *Config, level int) error {
 		}
 
 		currentFile.Store(logFile)
-		logLevel.Store(level)
+		logLevel.Store(cfg.Level)
 		bufferSize.Store(newBufferSize)
 
 		logger.Store(slog.New(slog.NewJSONHandler(logFile, &slog.HandlerOptions{

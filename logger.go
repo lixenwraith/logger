@@ -4,7 +4,6 @@ package logger
 
 import (
 	"context"
-	"fmt"
 )
 
 // Log level constants matching slog levels for consistent logging across the application.
@@ -30,11 +29,43 @@ type Config struct {
 
 // Init initializes the logger with the provided configuration.
 // It validates the configuration and sets up the logging infrastructure including file management and buffering.
-func Init(ctx context.Context, cfg *Config) error {
-	if cfg.Name == "" {
-		return fmt.Errorf("logger name cannot be empty")
+func Init(ctx context.Context, cfg ...*Config) error {
+	defaultConfig := &Config{
+		Level:          LevelInfo,
+		Name:           "log",
+		Directory:      "",
+		BufferSize:     1024,
+		MaxSizeMB:      10,
+		MaxTotalSizeMB: 0,
+		MinDiskFreeMB:  100,
 	}
-	return initLogger(ctx, cfg, cfg.Level)
+
+	if len(cfg) == 0 {
+		return initLogger(ctx, defaultConfig)
+	} else {
+		userConfig := cfg[0]
+		mergedCfg := &Config{
+			Level:          getConfigValue(defaultConfig.Level, userConfig.Level),
+			Name:           getConfigValue(defaultConfig.Name, userConfig.Name),
+			Directory:      userConfig.Directory, // empty string is valid
+			BufferSize:     getConfigValue(defaultConfig.BufferSize, userConfig.BufferSize),
+			MaxSizeMB:      getConfigValue(defaultConfig.MaxSizeMB, userConfig.MaxSizeMB),
+			MaxTotalSizeMB: getConfigValue(defaultConfig.MaxTotalSizeMB, userConfig.MaxTotalSizeMB),
+			MinDiskFreeMB:  getConfigValue(defaultConfig.MinDiskFreeMB, userConfig.MinDiskFreeMB),
+		}
+		return initLogger(ctx, mergedCfg)
+	}
+}
+
+// getConfigValue returns defaultVal if cfgVal equals the zero value for type T,
+// otherwise returns cfgVal. Type T must satisfy the comparable constraint.
+// This is commonly used for merging configuration values with their defaults.
+func getConfigValue[T comparable](defaultVal, cfgVal T) T {
+	var zero T
+	if cfgVal == zero {
+		return defaultVal
+	}
+	return cfgVal
 }
 
 // Debug logs a message at debug level with the given context and key-value pairs.

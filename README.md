@@ -37,6 +37,7 @@ import (
 )
 
 func main() {
+    // config is optional, values not set use default
     cfg := &logger.Config{
         Level:          logger.LevelInfo,
         Name:           "myapp",
@@ -61,15 +62,15 @@ func main() {
 
 The `Config` struct provides the following options:
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| Level | Minimum log level to record | - |
-| Name | Base name for log files | - |
-| Directory | Directory to store log files | - |
-| BufferSize | Channel buffer size for burst handling | 1000 |
-| MaxSizeMB | Maximum size of each log file before rotation | - |
-| MaxTotalSizeMB | Maximum total size of log directory (0 disables) | 0 |
-| MinDiskFreeMB | Minimum required free disk space (0 disables) | 0 |
+| Option         | Description                                      | Default   |
+|----------------|--------------------------------------------------|-----------|
+| Level          | Minimum log level to record                      | LevelInfo |
+| Name           | Base name for log files                          | log       |
+| Directory      | Directory to store log files                     | .         |
+| BufferSize     | Channel buffer size for burst handling           | 1024      |
+| MaxSizeMB      | Maximum size of each log file before rotation    | 10        |
+| MaxTotalSizeMB | Maximum total size of log directory (0 disables) | 50        |
+| MinDiskFreeMB  | Minimum required free disk space (0 disables)    | 100       |
 
 ## Disk Space Management
 
