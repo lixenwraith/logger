@@ -22,7 +22,6 @@ type logRecord struct {
 	Level   int
 	Message string
 	Args    []any
-	Time    time.Time
 }
 
 // Package level variables maintaining logger state and configuration.
@@ -144,7 +143,6 @@ func log(logCtx context.Context, level int, msg string, args ...any) {
 		Level:   level,
 		Message: msg,
 		Args:    args,
-		Time:    time.Now(),
 	}
 
 	// Process any dropped logs before handling new log
@@ -162,7 +160,6 @@ func log(logCtx context.Context, level int, msg string, args ...any) {
 				"dropped_count", currentDrops - logged,
 				"total_dropped", currentDrops,
 			},
-			Time: time.Now(),
 		}
 
 		select {
@@ -194,10 +191,7 @@ func processLogs() {
 			}
 
 			log := logger.Load().(*slog.Logger)
-			attrs := []slog.Attr{
-				slog.Time("timestamp", record.Time),
-				slog.Any("args", record.Args),
-			}
+			attrs := []slog.Attr{slog.Any("args", record.Args)}
 
 			// Check file size and rotate if needed
 			currentFileSize := currentSize.Load()
