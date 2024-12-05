@@ -28,7 +28,7 @@ const (
 	numWorkers     = 1000
 )
 
-var levels = []int{
+var levels = []int64{
 	logger.LevelDebug,
 	logger.LevelInfo,
 	logger.LevelWarn,
@@ -56,6 +56,7 @@ func logBurst(ctx context.Context, burstID int) {
 			msg := generateRandomMessage(msgSize)
 
 			args := []any{
+				"msg", msg,
 				"worker_id", burstID % numWorkers,
 				"burst_id", burstID,
 				"log_number", i,
@@ -65,13 +66,13 @@ func logBurst(ctx context.Context, burstID int) {
 
 			switch level {
 			case logger.LevelDebug:
-				logger.Debug(ctx, msg, args...)
+				logger.Debug(ctx, args...)
 			case logger.LevelInfo:
-				logger.Info(ctx, msg, args...)
+				logger.Info(ctx, args...)
 			case logger.LevelWarn:
-				logger.Warn(ctx, msg, args...)
+				logger.Warn(ctx, args...)
 			case logger.LevelError:
-				logger.Error(ctx, msg, args...)
+				logger.Error(ctx, args...)
 			}
 
 			time.Sleep(time.Duration(rand.Intn(5)) * time.Millisecond)

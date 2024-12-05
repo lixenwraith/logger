@@ -1,14 +1,15 @@
-// Package logger provides a buffered, rotating logger that wraps slog with production-ready features
+// Package logger provides a buffered, rotating logger with production-ready features
 // including automatic file rotation, disk space management, and dropped log detection.
 package logger
 
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -18,10 +19,9 @@ import (
 // logRecord represents a single log entry with its complete context and metadata.
 // It encapsulates all information needed to write a structured log entry.
 type logRecord struct {
-	LogCtx  context.Context
-	Level   int
-	Message string
-	Args    []any
+	LogCtx context.Context
+	Level  int64
+	Args   []any
 }
 
 // Package level variables maintaining logger state and configuration.
@@ -29,14 +29,15 @@ type logRecord struct {
 var (
 	logChannel     chan logRecord
 	isInitialized  atomic.Bool
-	logLevel       atomic.Value // stores int
-	logger         atomic.Value // stores *slog.Logger
+	logLevel       atomic.Value // stores int64
 	currentFile    atomic.Value // stores *os.File
 	name           string
 	directory      string
 	maxSizeMB      int64
 	maxTotalSizeMB int64
 	minDiskFreeMB  int64
+	flushTimer     time.Duration
+	traceDepth     int64
 	diskFullLogged atomic.Bool
 	currentSize    atomic.Int64
 	bufferSize     atomic.Int64
@@ -45,7 +46,30 @@ var (
 	processCtx     context.Context
 	processCancel  context.CancelFunc
 	mu             sync.RWMutex
+	initMu         sync.Mutex
+	loggerDisabled atomic.Bool
 )
+
+// shutdownOnce ensures the logger shutdown routine executes exactly once,
+// even if multiple shutdown paths are triggered simultaneously.
+var shutdownOnce sync.Once
+
+// init sets up a finalizer to handle non-graceful program termination.
+// It attempts to flush pending logs and close files without blocking program exit.
+// Applications should still call Shutdown explicitly for graceful termination.
+func init() {
+	// Set finalizer for non-graceful exits
+	runtime.SetFinalizer(&isInitialized, func(interface{}) {
+		// Only attempt shutdown if logger was initialized
+		if isInitialized.Load() {
+			shutdownOnce.Do(func() {
+				if err := Shutdown(context.Background()); err != nil {
+					fmt.Fprintf(os.Stderr, "Logger shutdown error: %v\n", err)
+				}
+			})
+		}
+	})
+}
 
 // initLogger configures and starts the logging infrastructure with the provided configuration.
 // It handles initialization of files, channels, and background processing while ensuring thread safety.
@@ -59,6 +83,9 @@ func initLogger(ctx context.Context, cfg *Config) error {
 	default:
 		// Setup directory and validate disk space configuration
 		directory = cfg.Directory
+		if directory == "" {
+			directory = "."
+		}
 		if err := os.MkdirAll(directory, 0755); err != nil {
 			return fmt.Errorf("failed to create log directory: %w", err)
 		}
@@ -67,8 +94,9 @@ func initLogger(ctx context.Context, cfg *Config) error {
 		maxSizeMB = cfg.MaxSizeMB
 		maxTotalSizeMB = cfg.MaxTotalSizeMB
 		minDiskFreeMB = cfg.MinDiskFreeMB
+		flushTimer = time.Duration(cfg.FlushTimer) * time.Millisecond
 
-		newBufferSize := int64(cfg.BufferSize)
+		newBufferSize := cfg.BufferSize
 		if newBufferSize < 1 {
 			newBufferSize = 1000
 		}
@@ -82,6 +110,11 @@ func initLogger(ctx context.Context, cfg *Config) error {
 				return fmt.Errorf("insufficient disk space for logging: %w", err)
 			}
 		}
+
+		if cfg.TraceDepth < 0 || cfg.TraceDepth > 10 {
+			return fmt.Errorf("invalid trace depth: must be between 0 and 10")
+		}
+		traceDepth = cfg.TraceDepth
 
 		// Handle reconfiguration of existing logger
 		if isInitialized.Load() {
@@ -109,10 +142,6 @@ func initLogger(ctx context.Context, cfg *Config) error {
 		logLevel.Store(cfg.Level)
 		bufferSize.Store(newBufferSize)
 
-		logger.Store(slog.New(slog.NewJSONHandler(logFile, &slog.HandlerOptions{
-			Level: slog.Level(logLevel.Load().(int)),
-		})))
-
 		logChannel = make(chan logRecord, newBufferSize)
 
 		processCtx, processCancel = context.WithCancel(ctx)
@@ -125,9 +154,12 @@ func initLogger(ctx context.Context, cfg *Config) error {
 
 // log handles the actual logging operation including dropped log detection and disk space checks.
 // It buffers log records through a channel for asynchronous processing.
-func log(logCtx context.Context, level int, msg string, args ...any) {
+func log(logCtx context.Context, level int64, args ...any) {
 	// Check if logger is initialized and if log should be processed based on level
-	if !isInitialized.Load() || level < logLevel.Load().(int) {
+	if !isInitialized.Load() {
+		return
+	}
+	if level < logLevel.Load().(int64) {
 		return
 	}
 
@@ -135,14 +167,6 @@ func log(logCtx context.Context, level int, msg string, args ...any) {
 	if err := checkDiskSpace(logCtx); err != nil {
 		droppedLogs.Add(1)
 		return
-	}
-
-	// Create log record from arguments
-	record := logRecord{
-		LogCtx:  logCtx,
-		Level:   level,
-		Message: msg,
-		Args:    args,
 	}
 
 	// Process any dropped logs before handling new log
@@ -153,10 +177,10 @@ func log(logCtx context.Context, level int, msg string, args ...any) {
 		// current dropped log counter to avoid conflict.
 		loggedDrops.Store(currentDrops)
 		dropRecord := logRecord{
-			LogCtx:  context.Background(),
-			Level:   LevelError,
-			Message: "Logs were dropped",
+			LogCtx: context.Background(),
+			Level:  LevelError,
 			Args: []any{
+				"Logs were dropped",
 				"dropped_count", currentDrops - logged,
 				"total_dropped", currentDrops,
 			},
@@ -167,6 +191,21 @@ func log(logCtx context.Context, level int, msg string, args ...any) {
 		default:
 			droppedLogs.Add(1)
 		}
+	}
+
+	logArgs := args
+	// Get caller trace if set
+	const skipTrace = 4 // 3 levels of logger calls + adjustment for runtime.Callers behavior
+
+	if trace := getTrace(skipTrace); trace != "" {
+		logArgs = append([]any{trace}, args...)
+	}
+
+	// Create log record from arguments
+	record := logRecord{
+		LogCtx: logCtx,
+		Level:  level,
+		Args:   logArgs,
 	}
 
 	// Process log record
@@ -180,22 +219,27 @@ func log(logCtx context.Context, level int, msg string, args ...any) {
 // processLogs is the main log processing loop running in a separate goroutine.
 // It handles the actual writing of logs and manages file rotation based on size.
 func processLogs() {
+	ticker := time.NewTicker(flushTimer)
+	defer ticker.Stop()
+
 	for {
 		select {
-		case <-processCtx.Done():
-			return
 		// Process each log record
 		case record, ok := <-logChannel:
 			if !ok {
+				if currentFile := currentFile.Load().(*os.File); currentFile != nil {
+					currentFile.Sync()
+				}
 				return
 			}
 
-			log := logger.Load().(*slog.Logger)
-			attrs := []slog.Attr{slog.Any("args", record.Args)}
+			// Create log entry and write
+			s := newSerializer()
+			data := s.serialize(record.Level, record.Args)
 
 			// Check file size and rotate if needed
 			currentFileSize := currentSize.Load()
-			estimatedSize := currentFileSize + 512
+			estimatedSize := currentFileSize + int64(len(data))
 
 			if maxSizeMB > 0 && estimatedSize > maxSizeMB*1024*1024 {
 				if err := rotateLogFile(record.LogCtx); err != nil {
@@ -203,11 +247,27 @@ func processLogs() {
 				}
 			}
 
-			log.LogAttrs(processCtx, slog.Level(record.Level), record.Message, attrs...)
+			if _, err := currentFile.Load().(*os.File).Write(data); err != nil {
+				continue
+			}
+
+			// Sync after each write during shutdown
+			if !isInitialized.Load() {
+				currentFile.Load().(*os.File).Sync()
+			}
 
 			if fi, err := os.Stat(currentFile.Load().(*os.File).Name()); err == nil {
 				currentSize.Store(fi.Size())
 			}
+		case <-ticker.C:
+			if currentFile := currentFile.Load().(*os.File); currentFile != nil {
+				currentFile.Sync()
+			}
+		case <-processCtx.Done():
+			if currentFile := currentFile.Load().(*os.File); currentFile != nil {
+				currentFile.Sync()
+			}
+			return
 		}
 	}
 }
@@ -221,30 +281,25 @@ func shutdownLogger(ctx context.Context) error {
 	if !isInitialized.Load() {
 		return nil
 	}
-	isInitialized.Store(false)
+
+	loggerDisabled.Store(true) // Prevent new logs/reinit but keep processing
+	time.Sleep(2 * flushTimer)
 
 	if processCancel != nil {
 		processCancel()
 	}
-
-	timer := time.NewTimer(500 * time.Millisecond)
-	defer timer.Stop()
-
-	select {
-	case <-timer.C:
-		// Half second grace period for processing remaining logs
-	case <-ctx.Done():
-		// Immediate shutdown if context cancelled
-	}
-
 	close(logChannel)
 
 	if currentFile := currentFile.Load().(*os.File); currentFile != nil {
+		if err := currentFile.Sync(); err != nil { // final sync before closing
+			return fmt.Errorf("failed to sync log file: %w", err)
+		}
 		if err := currentFile.Close(); err != nil {
 			return fmt.Errorf("failed to close log file: %w", err)
 		}
 	}
 
+	isInitialized.Store(false)
 	return nil
 }
 
@@ -339,10 +394,6 @@ func rotateLogFile(ctx context.Context) error {
 
 		currentFile.Store(newFile)
 		currentSize.Store(0)
-
-		logger.Store(slog.New(slog.NewJSONHandler(newFile, &slog.HandlerOptions{
-			Level: slog.Level(logLevel.Load().(int)),
-		})))
 
 		return nil
 	}
@@ -482,4 +533,102 @@ func checkDiskSpace(ctx context.Context) error {
 
 	diskFullLogged.Store(false)
 	return nil
+}
+
+// stringifyMessage converts any type to a string representation
+func stringifyMessage(msg any) string {
+	switch m := msg.(type) {
+	case string:
+		return m
+	case error:
+		return m.Error()
+	case fmt.Stringer:
+		return m.String()
+	default:
+		return fmt.Sprintf("%+v", m)
+	}
+}
+
+// ensureInitialized checks if logger is initialized and initializes with defaults if needed
+func ensureInitialized() bool {
+	// If previous initialization failed, drop logs silently
+	if loggerDisabled.Load() {
+		return false
+	}
+
+	// If already initialized successfully, proceed with logging
+	if isInitialized.Load() {
+		return true
+	}
+
+	// Try to initialize
+	initMu.Lock()
+	defer initMu.Unlock()
+
+	// Double check both conditions after lock
+	if loggerDisabled.Load() || isInitialized.Load() {
+		return isInitialized.Load()
+	}
+
+	if err := Init(context.Background()); err != nil {
+		// Mark initialization as failed and silently drop future logs
+		loggerDisabled.Store(true)
+		return false
+	}
+
+	return true
+}
+
+func getTrace(skip int) string {
+	depth := int(traceDepth)
+	if depth == 0 {
+		return ""
+	}
+
+	// Capture up to depth+skip frames to account for internal calls
+	pc := make([]uintptr, depth+skip)
+	n := runtime.Callers(skip, pc)
+	if n == 0 {
+		return "(unknown)"
+	}
+
+	frames := runtime.CallersFrames(pc[:n])
+	var trace []string
+	count := 0
+
+	for {
+		frame, more := frames.Next()
+		if !more || count >= depth {
+			break
+		}
+
+		funcName := filepath.Base(frame.Function)
+		if strings.HasPrefix(funcName, "func") {
+			funcName = fmt.Sprintf("(anonymous %s)", funcName)
+		}
+		trace = append(trace, funcName)
+		count++
+	}
+
+	if len(trace) == 0 {
+		return "(unknown)"
+	}
+
+	// Reverse the trace array before joining for outer -> inner order
+	for i := 0; i < len(trace)/2; i++ {
+		j := len(trace) - i - 1
+		trace[i], trace[j] = trace[j], trace[i]
+	}
+	return strings.Join(trace, " -> ")
+}
+
+// getConfigValue returns defaultVal if cfgVal equals the zero value for type T,
+// otherwise returns cfgVal. Type T must satisfy the comparable constraint.
+// This is commonly used for merging configuration values with their defaults.
+func getConfigValue[T comparable](defaultVal, cfgVal T) T {
+	var zero T
+	if cfgVal == zero {
+		return defaultVal
+	}
+	return cfgVal
 }
