@@ -47,7 +47,7 @@ func main() {
 		MaxSizeMB:      100,  // Rotate files at 100MB
 		MaxTotalSizeMB: 1000, // Keep total logs under 1GB
 		MinDiskFreeMB:  500,  // Require 500MB free space
-        TraceDepth:     2,    // Include 2 levels of function calls in trace
+		TraceDepth:     2,    // Include 2 levels of function calls in trace
 	}
 
 	ctx := context.Background()
@@ -112,7 +112,7 @@ logger.I("Starting app")
 logger.E(err, "operation", "db_connect", "retry", 3)
 logger.W(customError{}, "component", "cache")
 logger.D(response, "request_id", reqID)
-_ := logger.Shutdown() // to ensure logs are written if the program finishes faster than flush timer
+_ := logger.Shutdown() // to ensure logs are written if the program finishes before logs are flushed to disk
 ```
 
 ### Runtime Reconfiguration
@@ -121,13 +121,13 @@ The logger supports live reconfiguration while preserving existing logs:
 
 ```go
 newCfg := &logger.Config{
-Level:          logger.LevelDebug,
-Name:           "myapp",
-Directory:      "/new/log/path",
-BufferSize:     2000,
-MaxSizeMB:      200,
-MaxTotalSizeMB: 2000,
-MinDiskFreeMB:  1000,
+    Level:          logger.LevelDebug,
+    Name:           "myapp",
+    Directory:      "/new/log/path",
+    BufferSize:     2000,
+    MaxSizeMB:      200,
+    MaxTotalSizeMB: 2000,
+    MinDiskFreeMB:  1000,
 }
 
 if err := logger.Init(ctx, newCfg); err != nil {
@@ -141,11 +141,11 @@ The logger supports automatic function call tracing with configurable depth:
 
 ```go
 cfg := &logger.Config{
-TraceDepth: 3,  // Capture up to 3 levels of function calls
+    TraceDepth: 3,  // Capture up to 3 levels of function calls
 }
 ```
 
-When enabled, each log entry will include the function call chain that led to the logging call. This helps with debugging and understanding the code flow. The trace depth can be set between 0 (disabled) and 10 levels.
+When enabled, each log entry will include the function call chain that led to the logging call. This helps with debugging and understanding the code flow. The trace depth can be set between 0 (disabled/no trace) and 10 levels.
 Example output with TraceDepth=2:
 
 ```json
@@ -153,7 +153,7 @@ Example output with TraceDepth=2:
   "time": "2024-03-21T15:04:05.123456789Z",
   "level": "info",
   "fields": [
-    **"main.processOrder -> main.validateInput"**,
+    "main.processOrder -> main.validateInput"
     "Order validated",
     "order_id",
     "12345"
@@ -175,7 +175,7 @@ logger.ErrorTrace(5, ctx, "Operation failed", "error", err)  // Shows 5 levels
 logger.IT(3, "Worker started", "pool", poolID)  // Info with 3 levels
 logger.DT(2, "Request received")                // Debug with 2 levels
 logger.WT(4, "Connection timeout")              // Warning with 4 levels
-logger.ET(5, err, "Database error")            // Error with 5 levels
+logger.ET(5, err, "Database error")             // Error with 5 levels
 ```
 These functions temporarily override the configured TraceDepth for a single log entry. This is useful for debugging specific code paths without enabling tracing for all logs:
 
