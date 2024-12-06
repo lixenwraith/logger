@@ -106,12 +106,6 @@ func initLogger(ctx context.Context, cfg *LoggerConfig) error {
 			return fmt.Errorf("invalid disk space configuration")
 		}
 
-		if maxTotalSizeMB > 0 || minDiskFreeMB > 0 {
-			if err := checkDiskSpace(ctx); err != nil {
-				return fmt.Errorf("insufficient disk space for logging: %w", err)
-			}
-		}
-
 		if cfg.TraceDepth < 0 || cfg.TraceDepth > 10 {
 			return fmt.Errorf("invalid trace depth: must be between 0 and 10")
 		}

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
 )
 
 // Context, channel, buffer, processing vars
@@ -112,6 +113,7 @@ func log(logCtx context.Context, level int64, depth int64, args ...any) {
 
 // sendLogRecord handles the safe sending of log records to the channel
 func sendLogRecord(record logRecord) {
+	// mainly to handle shutdown when goroutines write to closed channel
 	defer func() {
 		if recover() != nil {
 			droppedLogs.Add(1)
@@ -239,8 +241,21 @@ func getTrace(depth int64, skip int) string {
 		}
 
 		funcName := filepath.Base(frame.Function)
-		if strings.HasPrefix(funcName, "func") {
-			funcName = fmt.Sprintf("(anonymous %s)", funcName)
+		parts := strings.Split(funcName, ".")
+		lastPart := parts[len(parts)-1]
+		if strings.HasPrefix(lastPart, "func") {
+			// Check if rest is just digits
+			afterFunc := lastPart[4:]
+			isAnonymous := true
+			for _, c := range afterFunc {
+				if !unicode.IsDigit(c) {
+					isAnonymous = false
+					break
+				}
+			}
+			if isAnonymous {
+				funcName = fmt.Sprintf("(anonymous %s)", funcName)
+			}
 		}
 		trace = append(trace, funcName)
 		count++

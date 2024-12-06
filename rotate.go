@@ -19,36 +19,31 @@ var (
 // generateLogFileName creates a unique log filename using timestamp with increasing precision.
 // It ensures uniqueness by progressively adding more precise subsecond components.
 func generateLogFileName(ctx context.Context, baseName string, timestamp time.Time) (string, error) {
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	default:
-		baseTimestamp := timestamp.Format("060102_150405")
-		// Always include first decimal place (tenth of a second)
-		tenths := (timestamp.UnixNano() % 1e9) / 1e8
-		filename := fmt.Sprintf("%s_%s.%d.log", baseName, baseTimestamp, tenths)
-		fullPath := filepath.Join(directory, filename)
+	baseTimestamp := timestamp.Format("060102_150405")
+	// Always include first decimal place (tenth of a second)
+	tenths := (timestamp.UnixNano() % 1e9) / 1e8
+	filename := fmt.Sprintf("%s_%s.%d.log", baseName, baseTimestamp, tenths)
+	fullPath := filepath.Join(directory, filename)
 
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		return filename, nil
+	}
+
+	// If file exists, try additional precision
+	for precision := 2; precision <= 9; precision++ {
+		subseconds := timestamp.UnixNano() % 1e9 / pow10(9-precision)
+		subsecFormat := fmt.Sprintf("%%0%dd", precision)
+		filename = fmt.Sprintf("%s_%s_%s.log",
+			baseName,
+			baseTimestamp,
+			fmt.Sprintf(subsecFormat, subseconds))
+
+		fullPath = filepath.Join(directory, filename)
 		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
 			return filename, nil
 		}
-
-		// If file exists, try additional precision
-		for precision := 2; precision <= 9; precision++ {
-			subseconds := timestamp.UnixNano() % 1e9 / pow10(9-precision)
-			subsecFormat := fmt.Sprintf("%%0%dd", precision)
-			filename = fmt.Sprintf("%s_%s_%s.log",
-				baseName,
-				baseTimestamp,
-				fmt.Sprintf(subsecFormat, subseconds))
-
-			fullPath = filepath.Join(directory, filename)
-			if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-				return filename, nil
-			}
-		}
-		return "", fmt.Errorf("failed to generate unique log filename")
 	}
+	return "", fmt.Errorf("failed to generate unique log filename")
 }
 
 // pow10 calculates powers of 10 for subsecond precision in log filenames.
