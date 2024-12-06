@@ -1,6 +1,6 @@
 # Logger
 
-A buffered rotating logger for Go that wraps slog with advanced disk management and monitoring capabilities.
+A buffered rotating logger for Go with advanced disk management and tracing capabilities.
 
 ## Features
 

@@ -50,22 +50,22 @@ func Shutdown(ctx ...context.Context) error {
 	return shutdownLogger(shutdownCtx)
 }
 
-// Debug with trace
+// Debug with trace.
 func DebugTrace(depth int, logCtx context.Context, args ...any) {
 	log(logCtx, LevelDebug, int64(depth), args...)
 }
 
-// Info with trace
+// Info with trace.
 func InfoTrace(depth int, logCtx context.Context, args ...any) {
 	log(logCtx, LevelInfo, int64(depth), args...)
 }
 
-// Warn with trace
+// Warn with trace.
 func WarnTrace(depth int, logCtx context.Context, args ...any) {
 	log(logCtx, LevelWarn, int64(depth), args...)
 }
 
-// Error with trace
+// Error with trace.
 func ErrorTrace(depth int, logCtx context.Context, args ...any) {
 	log(logCtx, LevelError, int64(depth), args...)
 }
@@ -111,7 +111,7 @@ func E(args ...any) {
 	log(context.Background(), LevelError, traceDepth, args...)
 }
 
-// D with trace
+// D with trace.
 func DT(depth int, args ...any) {
 	if !ensureInitialized() {
 		return
@@ -119,7 +119,7 @@ func DT(depth int, args ...any) {
 	log(context.Background(), LevelDebug, int64(depth), args...)
 }
 
-// I with trace
+// I with trace.
 func IT(depth int, args ...any) {
 	if !ensureInitialized() {
 		return
@@ -127,7 +127,7 @@ func IT(depth int, args ...any) {
 	log(context.Background(), LevelInfo, int64(depth), args...)
 }
 
-// W with trace
+// W with trace.
 func WT(depth int, args ...any) {
 	if !ensureInitialized() {
 		return
@@ -135,10 +135,11 @@ func WT(depth int, args ...any) {
 	log(context.Background(), LevelWarn, int64(depth), args...)
 }
 
-// E with trace
+// E with trace.
 func ET(depth int, args ...any) {
 	if !ensureInitialized() {
 		return
 	}
 	log(context.Background(), LevelError, int64(depth), args...)
 }
+
