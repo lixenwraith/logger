@@ -1,3 +1,4 @@
+// traced: the program demonstrates logger trace usage
 package main
 
 import (

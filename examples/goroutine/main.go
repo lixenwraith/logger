@@ -1,3 +1,4 @@
+// goroutine: the program demonstrates logger usage in goroutines with context timeout
 package main
 
 import (

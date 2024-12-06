@@ -1,3 +1,5 @@
+// random_burst_rotate: the program demonstrates a high traffic scenario
+
 // Warning: this program uses around 50MB of disk space for dummy logs in "logs/" directory.
 // high CPU and disk usage while writing around 2GB of logs to test rotation and drops.
 // Tested with: 200 logs/~1MB memory buffer, 1000 parallel workers, local SSD.

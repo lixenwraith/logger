@@ -1,3 +1,4 @@
+// simplified: the program demonstrates simplified interface usage
 package main
 
 import (

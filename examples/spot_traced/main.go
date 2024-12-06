@@ -1,3 +1,4 @@
+// spot_traced: program demonstrates switching between traced and untraced logs
 package main
 
 import (

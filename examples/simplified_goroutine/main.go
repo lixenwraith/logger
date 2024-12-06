@@ -1,3 +1,4 @@
+// simplified_goroutine: the program demonstrates simplified interface usage with goroutines
 package main
 
 import (
