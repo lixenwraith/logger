@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -21,7 +22,10 @@ var (
 	maxTotalSizeMB int64
 	minDiskFreeMB  int64
 
-	diskFullLogged atomic.Bool
+	diskFullLogged   atomic.Bool
+	earliestFileTime atomic.Value // stores time.Time
+	retentionPeriod  time.Duration
+	retentionCheck   time.Duration
 )
 
 // getDiskStats retrieves filesystem statistics for the log directory.
@@ -157,5 +161,95 @@ func checkDiskSpace(ctx context.Context) error {
 	}
 
 	diskFullLogged.Store(false)
+	return nil
+}
+
+// updateEarliestFileTime scans the log directory and updates the atomic storage
+// with the modification time of the oldest log file found.
+func updateEarliestFileTime() {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		earliestFileTime.Store(time.Time{}) // Clear on error
+		return
+	}
+
+	var earliest time.Time
+	currentLogFile := ""
+	if f := currentFile.Load().(*os.File); f != nil {
+		currentLogFile = filepath.Base(f.Name())
+	}
+
+	// Format: <name>_<timestamp>.log or <name>_<timestamp>.<subsec>.log
+	prefix := name + "_"
+
+	for _, entry := range entries {
+		// Skip nil entries
+		if entry == nil {
+			continue
+		}
+
+		// Get name once to avoid multiple calls
+		fname := entry.Name()
+		if fname == "" {
+			continue
+		}
+
+		// Skip if not a log file or doesn't match the instance prefix
+		if !strings.HasPrefix(fname, prefix) || filepath.Ext(fname) != ".log" {
+			continue
+		}
+
+		// Skip current log file
+		if fname == currentLogFile {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		if earliest.IsZero() || info.ModTime().Before(earliest) {
+			earliest = info.ModTime()
+		}
+	}
+
+	// Store even if zero - indicates no eligible files
+	earliestFileTime.Store(earliest)
+}
+
+// cleanExpiredLogs removes any log file that matches the oldest known modification
+// time in the directory. It skips the currently active log file and respects
+// context cancellation.
+func cleanExpiredLogs(ctx context.Context, oldest time.Time) error {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			if filepath.Ext(entry.Name()) != ".log" {
+				continue
+			}
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+			if info.ModTime().Equal(oldest) {
+				if f := currentFile.Load().(*os.File); f != nil &&
+					entry.Name() == filepath.Base(f.Name()) {
+					continue
+				}
+				if err := os.Remove(filepath.Join(directory, entry.Name())); err != nil {
+					return err
+				}
+				break
+			}
+		}
+	}
 	return nil
 }

@@ -24,30 +24,35 @@ var (
 // LoggerConfig defines the logger configuration parameters.
 // All fields can be configured via JSON or TOML configuration files.
 type LoggerConfig struct {
-	Level          int64  `json:"level" toml:"level"`                         // LevelDebug, LevelInfo, LevelWarn, LevelError
-	Name           string `json:"name" toml:"name"`                           // Base name for log files
-	Directory      string `json:"directory" toml:"directory"`                 // Directory to store log files
-	BufferSize     int64  `json:"buffer_size" toml:"buffer_size"`             // Channel buffer size
-	MaxSizeMB      int64  `json:"max_size_mb" toml:"max_size_mb"`             // Max size of each log file in MB
-	MaxTotalSizeMB int64  `json:"max_total_size_mb" toml:"max_total_size_mb"` // Max total size of the log folder in MB to trigger old log deletion/pause logging
-	MinDiskFreeMB  int64  `json:"min_disk_free_mb" toml:"min_disk_free_mb"`   // Min available free space in MB to trigger old log deletion/pause logging
-	FlushTimer     int64  `json:"flush_timer" toml:"flush_timer"`             // Periodically forces writing logs to the disk to avoid missing logs on program shutdown
-	TraceDepth     int64  `json:"trace_depth" toml:"trace_depth"`             // 0-10, 0 disables tracing
+	Level                  int64   `json:"level" toml:"level"`                                       // LevelDebug, LevelInfo, LevelWarn, LevelError
+	Name                   string  `json:"name" toml:"name"`                                         // Base name for log files
+	Directory              string  `json:"directory" toml:"directory"`                               // Directory to store log files
+	BufferSize             int64   `json:"buffer_size" toml:"buffer_size"`                           // Channel buffer size
+	MaxSizeMB              int64   `json:"max_size_mb" toml:"max_size_mb"`                           // Max size of each log file in MB
+	MaxTotalSizeMB         int64   `json:"max_total_size_mb" toml:"max_total_size_mb"`               // Max total size of the log folder in MB to trigger old log deletion/pause logging
+	MinDiskFreeMB          int64   `json:"min_disk_free_mb" toml:"min_disk_free_mb"`                 // Min available free space in MB to trigger old log deletion/pause logging
+	FlushTimer             int64   `json:"flush_timer" toml:"flush_timer"`                           // Periodically forces writing logs to the disk to avoid missing logs on program shutdown
+	TraceDepth             int64   `json:"trace_depth" toml:"trace_depth"`                           // 0-10, 0 disables tracing
+	RetentionPeriod        float64 `json:"retention_period" toml:"retention_period"`                 // RetentionPeriod defines how long to keep log files in hours. Zero disables retention.
+	RetentionCheckInterval float64 `json:"retention_check_interval" toml:"retention_check_interval"` // RetentionCheckInterval defines how often to check for expired logs in minutes if retention is enabled.
 }
 
 // configLogger initializes the logger with the provided configuration.
 // It validates the configuration and sets up the logging infrastructure including file management and buffering.
 func configLogger(ctx context.Context, cfg ...*LoggerConfig) error {
+	// defaultConfig values are used if value is not provided by the user
 	defaultConfig := &LoggerConfig{
-		Level:          LevelInfo,
-		Name:           "log",
-		Directory:      "./logs",
-		BufferSize:     1024,
-		MaxSizeMB:      10,
-		MaxTotalSizeMB: 50,
-		MinDiskFreeMB:  100,
-		FlushTimer:     100,
-		TraceDepth:     0,
+		Level:                  LevelInfo,
+		Name:                   "log",
+		Directory:              "./logs",
+		BufferSize:             1024,
+		MaxSizeMB:              10,
+		MaxTotalSizeMB:         50,
+		MinDiskFreeMB:          100,
+		FlushTimer:             100,
+		TraceDepth:             0,
+		RetentionPeriod:        0.0,
+		RetentionCheckInterval: 60.0,
 	}
 
 	if len(cfg) == 0 {
@@ -55,15 +60,17 @@ func configLogger(ctx context.Context, cfg ...*LoggerConfig) error {
 	} else {
 		userConfig := cfg[0]
 		mergedCfg := &LoggerConfig{
-			Level:          getConfigValue(defaultConfig.Level, userConfig.Level),
-			Name:           getConfigValue(defaultConfig.Name, userConfig.Name),
-			Directory:      userConfig.Directory, // empty string is valid
-			BufferSize:     getConfigValue(defaultConfig.BufferSize, userConfig.BufferSize),
-			MaxSizeMB:      getConfigValue(defaultConfig.MaxSizeMB, userConfig.MaxSizeMB),
-			MaxTotalSizeMB: getConfigValue(defaultConfig.MaxTotalSizeMB, userConfig.MaxTotalSizeMB),
-			MinDiskFreeMB:  getConfigValue(defaultConfig.MinDiskFreeMB, userConfig.MinDiskFreeMB),
-			FlushTimer:     getConfigValue(defaultConfig.FlushTimer, userConfig.FlushTimer),
-			TraceDepth:     getConfigValue(defaultConfig.TraceDepth, userConfig.TraceDepth),
+			Level:                  getConfigValue(defaultConfig.Level, userConfig.Level),
+			Name:                   getConfigValue(defaultConfig.Name, userConfig.Name),
+			Directory:              userConfig.Directory, // empty string is valid
+			BufferSize:             getConfigValue(defaultConfig.BufferSize, userConfig.BufferSize),
+			MaxSizeMB:              getConfigValue(defaultConfig.MaxSizeMB, userConfig.MaxSizeMB),
+			MaxTotalSizeMB:         getConfigValue(defaultConfig.MaxTotalSizeMB, userConfig.MaxTotalSizeMB),
+			MinDiskFreeMB:          getConfigValue(defaultConfig.MinDiskFreeMB, userConfig.MinDiskFreeMB),
+			FlushTimer:             getConfigValue(defaultConfig.FlushTimer, userConfig.FlushTimer),
+			TraceDepth:             getConfigValue(defaultConfig.TraceDepth, userConfig.TraceDepth),
+			RetentionPeriod:        getConfigValue(defaultConfig.RetentionPeriod, userConfig.RetentionPeriod),
+			RetentionCheckInterval: getConfigValue(defaultConfig.RetentionCheckInterval, userConfig.RetentionCheckInterval),
 		}
 		return initLogger(ctx, mergedCfg)
 	}
@@ -93,6 +100,8 @@ func initLogger(ctx context.Context, cfg *LoggerConfig) error {
 		maxTotalSizeMB = cfg.MaxTotalSizeMB
 		minDiskFreeMB = cfg.MinDiskFreeMB
 		flushTimer = time.Duration(cfg.FlushTimer) * time.Millisecond
+		retentionPeriod = time.Duration(cfg.RetentionPeriod * float64(time.Hour))
+		retentionCheck = time.Duration(cfg.RetentionCheckInterval * float64(time.Minute))
 
 		newBufferSize := cfg.BufferSize
 		if newBufferSize < 1 {

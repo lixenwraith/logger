@@ -135,6 +135,15 @@ func processLogs() {
 	ticker := time.NewTicker(flushTimer)
 	defer ticker.Stop()
 
+	var retentionTicker *time.Ticker
+	var retentionChan <-chan time.Time // nil channel
+	if retentionPeriod > 0 && retentionCheck > 0 {
+		retentionTicker = time.NewTicker(retentionCheck)
+		defer retentionTicker.Stop()
+		retentionChan = retentionTicker.C // assign channel only if ticker exists
+		updateEarliestFileTime()
+	}
+
 	for {
 		select {
 		// Process each log record
@@ -176,6 +185,21 @@ func processLogs() {
 			if currentFile := currentFile.Load().(*os.File); currentFile != nil {
 				currentFile.Sync()
 			}
+		case <-retentionChan:
+			// Only process if retention is enabled
+			if retentionPeriod > 0 {
+				// Safe type assertion and non-zero check
+				if earliest, ok := earliestFileTime.Load().(time.Time); ok {
+					// Only process if we have a valid timestamp
+					if !earliest.IsZero() && time.Since(earliest) > retentionPeriod {
+						ctx := context.Background()
+						if err := cleanExpiredLogs(ctx, earliest); err == nil {
+							// Only update if cleanup succeeded
+							updateEarliestFileTime()
+						}
+					}
+				}
+			}
 		case <-processCtx.Done():
 			if currentFile := currentFile.Load().(*os.File); currentFile != nil {
 				currentFile.Sync()
@@ -215,6 +239,10 @@ func ensureInitialized() bool {
 	return true
 }
 
+// getTrace returns a function call trace as a string, formatted as "outer -> inner -> deepest".
+// It skips the specified number of frames and captures up to depth levels of function calls.
+// Returns empty string if depth is 0, or "(unknown)" if no frames are captured.
+// Function names are simplified to base names, with special handling for anonymous functions.
 func getTrace(depth int64, skip int) string {
 	if depth == 0 {
 		return ""
