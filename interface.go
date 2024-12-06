@@ -1,6 +1,3 @@
-// Package logger provides a buffered, rotating logger with production-ready features
-// including automatic file rotation, disk space management, and dropped log detection.
-// Lixen Wraith, 2024
 package logger
 
 import "context"
