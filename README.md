@@ -15,7 +15,8 @@ A buffered rotating logger for Go that wraps slog with advanced disk management 
 - Thread-safe operations using atomic counters
 - Context-aware logging with cancellation support
 - Multiple log levels (Debug, Info, Warn, Error) matching slog levels
-- JSON structured logging format
+- Efficient JSON structured logging with zero allocations
+- Function call trace support with configurable depth
 - Graceful shutdown with context support
 - Runtime reconfiguration
 - Disk full protection with logging pause
@@ -37,7 +38,7 @@ import (
 )
 
 func main() {
-	// config is optional, values not set use default
+	// config is optional, unconfigured parameters use default values
 	cfg := &logger.Config{
 		Level:          logger.LevelInfo,
 		Name:           "myapp",
@@ -46,6 +47,7 @@ func main() {
 		MaxSizeMB:      100,  // Rotate files at 100MB
 		MaxTotalSizeMB: 1000, // Keep total logs under 1GB
 		MinDiskFreeMB:  500,  // Require 500MB free space
+        TraceDepth:     2,    // Include 2 levels of function calls in trace
 	}
 
 	ctx := context.Background()
@@ -62,16 +64,17 @@ func main() {
 
 The `Config` struct provides the following options:
 
-| Option         | Description                                      | Default   |
-|----------------|--------------------------------------------------|-----------|
-| Level          | Minimum log level to record                      | LevelInfo |
-| Name           | Base name for log files                          | log       |
-| Directory      | Directory to store log files                     | .         |
-| BufferSize     | Channel buffer size for burst handling           | 1024      |
-| MaxSizeMB      | Maximum size of each log file before rotation    | 10        |
-| MaxTotalSizeMB | Maximum total size of log directory (0 disables) | 50        |
-| MinDiskFreeMB  | Minimum required free disk space (0 disables)    | 100       |
-| FlushTimer     | Time in milliseconds to force writing to disk    | 100       |
+| Option         | Description                                           | Default   |
+|----------------|-------------------------------------------------------|-----------|
+| Level          | Minimum log level to record                           | LevelInfo |
+| Name           | Base name for log files                               | log       |
+| Directory      | Directory to store log files                          | .         |
+| BufferSize     | Channel buffer size for burst handling                | 1024      |
+| MaxSizeMB      | Maximum size of each log file before rotation         | 10        |
+| MaxTotalSizeMB | Maximum total size of log directory (0 disables)      | 50        |
+| MinDiskFreeMB  | Minimum required free disk space (0 disables)         | 100       |
+| FlushTimer     | Time in milliseconds to force writing to disk         | 100       |
+| TraceDepth     | Number of function calls to include in trace (max 10) | 0         |
 
 ## Disk Space Management
 
@@ -90,18 +93,19 @@ The logger automatically manages disk space through several mechanisms:
 
 ### Logging Methods
 
-with context (requires initialization):
+with context (requires initialization).
 
 ```go
 logger.Init(ctx, cfg)
-logger.Debug(ctx, "Debug message", "key1", "value1")
+logger.Debug(ctx, "Debug message", "key", "value", "state")
 logger.Info(ctx, "Info message", "user", userID)
 logger.Warn(ctx, "Warning message", "latency_ms", 150)
-logger.Error(ctx, "Error message", "error", err.Error())
+logger.Error(ctx, "Error message", err.Error())
 err := logger.Shutdown(ctx)
 ```
 
-simplified, doesn't need initialization and shutdown (uses default config):
+simplified, doesn't need initialization (uses default config).
+clean shutdown is recommended.
 
 ```go
 logger.I("Starting app")
@@ -131,6 +135,67 @@ if err := logger.Init(ctx, newCfg); err != nil {
 }
 ```
 
+### Function Call Tracing
+
+The logger supports automatic function call tracing with configurable depth:
+
+```go
+cfg := &logger.Config{
+TraceDepth: 3,  // Capture up to 3 levels of function calls
+}
+```
+
+When enabled, each log entry will include the function call chain that led to the logging call. This helps with debugging and understanding the code flow. The trace depth can be set between 0 (disabled) and 10 levels.
+Example output with TraceDepth=2:
+
+```json
+{
+  "time": "2024-03-21T15:04:05.123456789Z",
+  "level": "info",
+  "fields": [
+    **"main.processOrder -> main.validateInput"**,
+    "Order validated",
+    "order_id",
+    "12345"
+  ]
+}
+```
+### Temporary Function Call Tracing
+
+While the logger configuration supports persistent function call tracing, you can also enable tracing for specific log entries using trace variants of logging functions:
+
+```go
+// Context-aware logging with trace
+logger.InfoTrace(3, ctx, "Processing order", "id", orderId)  // Shows 3 levels of function calls
+logger.DebugTrace(2, ctx, "Cache miss", "key", cacheKey)     // Shows 2 levels
+logger.WarnTrace(4, ctx, "Retry attempt", "count", retries)  // Shows 4 levels
+logger.ErrorTrace(5, ctx, "Operation failed", "error", err)  // Shows 5 levels
+
+// Simplified logging with trace
+logger.IT(3, "Worker started", "pool", poolID)  // Info with 3 levels
+logger.DT(2, "Request received")                // Debug with 2 levels
+logger.WT(4, "Connection timeout")              // Warning with 4 levels
+logger.ET(5, err, "Database error")            // Error with 5 levels
+```
+These functions temporarily override the configured TraceDepth for a single log entry. This is useful for debugging specific code paths without enabling tracing for all logs:
+
+```go
+func processOrder(orderID string) {
+    // Normal log without trace
+    logger.Info(ctx, "Processing started", "order", orderID)
+    
+    if err := validate(orderID); err != nil {
+        // Log error with function call trace
+        logger.ErrorTrace(3, ctx, "Validation failed", "error", err)
+        return
+    }
+    
+    // Back to normal logging
+    logger.Info(ctx, "Processing completed", "order", orderID)
+}
+```
+The trace depth parameter works the same way as the TraceDepth configuration option, accepting values from 0 (no trace) to 10.
+
 ### Graceful Shutdown
 
 Package has a default flush timer of 100ms (configurable). If the program exits before it ticks there may be no logs
@@ -154,11 +219,11 @@ The logger provides two sets of interfaces for different use cases:
 
 ```go
 // with context
-Init(ctx context.Context, cfg ...*Config) error
-Debug(ctx context.Context, msg string, args ...any)
-Info(ctx context.Context, msg string, args ...any)
-Warn(ctx context.Context, msg string, args ...any)
-Error(ctx context.Context, msg string, args ...any)
+Init(ctx context.Context, cfg ...*LoggerConfig) error
+Debug(ctx context.Context, args ...any)
+Info(ctx context.Context, args ...any)
+Warn(ctx context.Context, args ...any)
+Error(ctx context.Context, args ...any)
 Shutdown(ctx context.Context) error
 ```
 
@@ -166,11 +231,12 @@ Shutdown(ctx context.Context) error
 
 ```go
 // simplified
-D(msg any, args ...any)
-I(msg any, args ...any)
-W(msg any, args ...any)
-E(msg any, args ...any)
-Shutdown() error
+// optional: Config(cfg *LoggerConfig) error
+D(args ...any)
+I(args ...any)
+W(args ...any)
+E(args ...any)
+// optional: Shutdown() error
 ```
 
 The msg parameter accepts various types:
@@ -188,7 +254,9 @@ The msg parameter accepts various types:
 - Efficient log rotation with unique timestamps
 - Minimal lock contention using sync/atomic
 - Automatic recovery of dropped logs on next successful write
-- Context-aware operations for clean shutdown
+- Context-aware goroutine operation and clean shutdown
+- Graceful shutdown with 2x flush timer wait period for in-flight operations
+- Silent log dropping on channel closure or disabled logger state
 
 ## License
 

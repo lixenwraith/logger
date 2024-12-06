@@ -9,7 +9,7 @@ import (
 
 func main() {
 	ctx := context.Background()
-	cfg := &logger.Config{
+	cfg := &logger.LoggerConfig{
 		Directory:  "./logs",
 		TraceDepth: 8,
 	}

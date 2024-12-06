@@ -112,7 +112,7 @@ func main() {
 
 	logsDir := filepath.Join(currentDir, "logs")
 
-	cfg := &logger.Config{
+	cfg := &logger.LoggerConfig{
 		Level:          logger.LevelDebug,
 		Name:           "testapp",
 		Directory:      logsDir,

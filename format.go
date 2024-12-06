@@ -1,6 +1,10 @@
+// Package logger provides a buffered, rotating logger with production-ready features
+// including automatic file rotation, disk space management, and dropped log detection.
+// Lixen Wraith, 2024
 package logger
 
 import (
+	"fmt"
 	"strconv"
 	"time"
 )
@@ -92,5 +96,19 @@ func (s *serializer) writeValue(v any) {
 		s.buf = append(s.buf, '"')
 		s.writeString(stringifyMessage(val))
 		s.buf = append(s.buf, '"')
+	}
+}
+
+// stringifyMessage converts any type to a string representation
+func stringifyMessage(msg any) string {
+	switch m := msg.(type) {
+	case string:
+		return m
+	case error:
+		return m.Error()
+	case fmt.Stringer:
+		return m.String()
+	default:
+		return fmt.Sprintf("%+v", m)
 	}
 }
