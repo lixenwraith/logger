@@ -1,4 +1,4 @@
-// traced: the program demonstrates logger trace usage
+// traced: the program demonstrates logger and logger/quick trace usage
 package main
 
 import (
@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/LixenWraith/logger"
+	"github.com/LixenWraith/logger/quick"
 )
 
 func main() {
@@ -25,7 +26,7 @@ func main() {
 
 	// Goroutine with anonymous function
 	go func() {
-		logger.I("Log from anonymous goroutine")
+		quick.Info("Log from anonymous goroutine")
 		innerAnonymous()
 	}()
 
@@ -37,35 +38,35 @@ func main() {
 }
 
 func outerFunction() {
-	logger.I("Outer function log")
+	quick.Info("Outer function log")
 	middleFunction()
 }
 
 func middleFunction() {
-	logger.I("Middle function log")
+	quick.Info("Middle function log")
 	innerFunction()
 }
 
 func innerFunction() {
-	logger.I("Inner function log")
+	quick.Info("Inner function log")
 }
 
 func innerAnonymous() {
 	fn := func() {
-		logger.I("Nested anonymous log")
+		quick.Info("Nested anonymous log")
 	}
 	fn()
 }
 
 func mixedCalls() {
-	logger.I("Mixed calls start")
+	quick.Info("Mixed calls start")
 
 	func() {
-		logger.I("First anonymous")
+		quick.Info("First anonymous")
 		func() {
-			logger.I("Second anonymous")
+			quick.Info("Second anonymous")
 			func() {
-				logger.I("Third anonymous")
+				quick.Info("Third anonymous")
 			}()
 		}()
 	}()

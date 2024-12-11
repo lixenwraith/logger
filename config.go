@@ -27,6 +27,7 @@ type LoggerConfig struct {
 	Level                  int64   `json:"level" toml:"level"`                                       // LevelDebug, LevelInfo, LevelWarn, LevelError
 	Name                   string  `json:"name" toml:"name"`                                         // Base name for log files
 	Directory              string  `json:"directory" toml:"directory"`                               // Directory to store log files
+	Format                 string  `json:"format" toml:"format"`                                     // Serialized output file type: txt, json
 	BufferSize             int64   `json:"buffer_size" toml:"buffer_size"`                           // Channel buffer size
 	MaxSizeMB              int64   `json:"max_size_mb" toml:"max_size_mb"`                           // Max size of each log file in MB
 	MaxTotalSizeMB         int64   `json:"max_total_size_mb" toml:"max_total_size_mb"`               // Max total size of the log folder in MB to trigger old log deletion/pause logging
@@ -45,6 +46,7 @@ func configLogger(ctx context.Context, cfg ...*LoggerConfig) error {
 		Level:                  LevelInfo,
 		Name:                   "log",
 		Directory:              "./logs",
+		Format:                 "txt",
 		BufferSize:             1024,
 		MaxSizeMB:              10,
 		MaxTotalSizeMB:         50,
@@ -62,7 +64,8 @@ func configLogger(ctx context.Context, cfg ...*LoggerConfig) error {
 		mergedCfg := &LoggerConfig{
 			Level:                  getConfigValue(defaultConfig.Level, userConfig.Level),
 			Name:                   getConfigValue(defaultConfig.Name, userConfig.Name),
-			Directory:              userConfig.Directory, // empty string is valid
+			Directory:              getConfigValue(defaultConfig.Directory, userConfig.Directory),
+			Format:                 getConfigValue(defaultConfig.Format, userConfig.Format),
 			BufferSize:             getConfigValue(defaultConfig.BufferSize, userConfig.BufferSize),
 			MaxSizeMB:              getConfigValue(defaultConfig.MaxSizeMB, userConfig.MaxSizeMB),
 			MaxTotalSizeMB:         getConfigValue(defaultConfig.MaxTotalSizeMB, userConfig.MaxTotalSizeMB),
@@ -96,6 +99,7 @@ func initLogger(ctx context.Context, cfg *LoggerConfig) error {
 		}
 
 		name = cfg.Name
+		format = cfg.Format
 		maxSizeMB = cfg.MaxSizeMB
 		maxTotalSizeMB = cfg.MaxTotalSizeMB
 		minDiskFreeMB = cfg.MinDiskFreeMB

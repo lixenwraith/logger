@@ -209,36 +209,6 @@ func processLogs() {
 	}
 }
 
-// ensureInitialized checks if logger is initialized and initializes with defaults if needed
-func ensureInitialized() bool {
-	// If previous initialization failed, drop logs silently
-	if loggerDisabled.Load() {
-		return false
-	}
-
-	// If already initialized successfully, proceed with logging
-	if isInitialized.Load() {
-		return true
-	}
-
-	// Try to initialize
-	initMu.Lock()
-	defer initMu.Unlock()
-
-	// Double check both conditions after lock
-	if loggerDisabled.Load() || isInitialized.Load() {
-		return isInitialized.Load()
-	}
-
-	if err := Init(context.Background()); err != nil {
-		// Mark initialization as failed and silently drop future logs
-		loggerDisabled.Store(true)
-		return false
-	}
-
-	return true
-}
-
 // getTrace returns a function call trace as a string, formatted as "outer -> inner -> deepest".
 // It skips the specified number of frames and captures up to depth levels of function calls.
 // Returns empty string if depth is 0, or "(unknown)" if no frames are captured.
@@ -296,4 +266,34 @@ func getTrace(depth int64, skip int) string {
 		trace[i], trace[j] = trace[j], trace[i]
 	}
 	return strings.Join(trace, " -> ")
+}
+
+// EnsureInitialized checks if logger is initialized and initializes with defaults if needed
+func ensureInitialized() bool {
+	// If previous initialization failed, drop logs silently
+	if loggerDisabled.Load() {
+		return false
+	}
+
+	// If already initialized successfully, proceed with logging
+	if isInitialized.Load() {
+		return true
+	}
+
+	// Try to initialize
+	initMu.Lock()
+	defer initMu.Unlock()
+
+	// Double check both conditions after lock
+	if loggerDisabled.Load() || isInitialized.Load() {
+		return isInitialized.Load()
+	}
+
+	if err := Init(context.Background()); err != nil {
+		// Mark initialization as failed and silently drop future logs
+		loggerDisabled.Store(true)
+		return false
+	}
+
+	return true
 }

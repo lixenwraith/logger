@@ -50,23 +50,23 @@ func Shutdown(ctx ...context.Context) error {
 	return shutdownLogger(shutdownCtx)
 }
 
-// Debug with trace.
-func DebugTrace(depth int, logCtx context.Context, args ...any) {
+// DebugTrace is Debug log with trace.
+func DebugTrace(logCtx context.Context, depth int, args ...any) {
 	log(logCtx, LevelDebug, int64(depth), args...)
 }
 
-// Info with trace.
-func InfoTrace(depth int, logCtx context.Context, args ...any) {
+// InfoTrace is Info log with trace.
+func InfoTrace(logCtx context.Context, depth int, args ...any) {
 	log(logCtx, LevelInfo, int64(depth), args...)
 }
 
-// Warn with trace.
-func WarnTrace(depth int, logCtx context.Context, args ...any) {
+// WarnTrace is Warn log with trace.
+func WarnTrace(logCtx context.Context, depth int, args ...any) {
 	log(logCtx, LevelWarn, int64(depth), args...)
 }
 
-// Error with trace.
-func ErrorTrace(depth int, logCtx context.Context, args ...any) {
+// ErrorTrace is Error log with trace.
+func ErrorTrace(logCtx context.Context, depth int, args ...any) {
 	log(logCtx, LevelError, int64(depth), args...)
 }
 
@@ -75,71 +75,9 @@ func Config(cfg *LoggerConfig) error {
 	return configLogger(context.Background(), cfg)
 }
 
-// D logs a debug message without requiring context initialization.
-// Message is dropped if logger's level is higher than debug.
-func D(args ...any) {
-	if !ensureInitialized() {
-		return
-	}
-	log(context.Background(), LevelDebug, traceDepth, args...)
+// EnsureInitialized checks if the logger is initialized, and initializes if not.
+// returns true if it was already initialized or initialization attempt was successful.
+// returns false if logger cannot be initialized.
+func EnsureInitialized() bool {
+	return ensureInitialized()
 }
-
-// I logs an info message without requiring context initialization.
-// Message is dropped if logger's level is higher than info.
-func I(args ...any) {
-	if !ensureInitialized() {
-		return
-	}
-	log(context.Background(), LevelInfo, traceDepth, args...)
-}
-
-// W logs a warning message without requiring context initialization.
-// Message is dropped if logger's level is higher than warn.
-func W(args ...any) {
-	if !ensureInitialized() {
-		return
-	}
-	log(context.Background(), LevelWarn, traceDepth, args...)
-}
-
-// E logs an error message without requiring context initialization.
-// Message is dropped if logger's level is higher than error.
-func E(args ...any) {
-	if !ensureInitialized() {
-		return
-	}
-	log(context.Background(), LevelError, traceDepth, args...)
-}
-
-// D with trace.
-func DT(depth int, args ...any) {
-	if !ensureInitialized() {
-		return
-	}
-	log(context.Background(), LevelDebug, int64(depth), args...)
-}
-
-// I with trace.
-func IT(depth int, args ...any) {
-	if !ensureInitialized() {
-		return
-	}
-	log(context.Background(), LevelInfo, int64(depth), args...)
-}
-
-// W with trace.
-func WT(depth int, args ...any) {
-	if !ensureInitialized() {
-		return
-	}
-	log(context.Background(), LevelWarn, int64(depth), args...)
-}
-
-// E with trace.
-func ET(depth int, args ...any) {
-	if !ensureInitialized() {
-		return
-	}
-	log(context.Background(), LevelError, int64(depth), args...)
-}
-

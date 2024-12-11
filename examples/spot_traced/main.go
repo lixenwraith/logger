@@ -43,15 +43,15 @@ func finalStep() {
 }
 
 func doSomethingWithTrace() {
-	logger.InfoTrace(3, context.Background(), "Starting process")
+	logger.InfoTrace(context.Background(), 3, "Starting process")
 	processDataWithTrace()
 }
 
 func processDataWithTrace() {
-	logger.InfoTrace(3, context.Background(), "Processing data")
+	logger.InfoTrace(context.Background(), 3, "Processing data")
 	finalStepWithTrace()
 }
 
 func finalStepWithTrace() {
-	logger.InfoTrace(3, context.Background(), "Final step")
+	logger.InfoTrace(context.Background(), 3, "Final step")
 }

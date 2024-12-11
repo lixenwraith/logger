@@ -1,6 +1,6 @@
 # Logger
 
-A buffered rotating logger for Go with advanced disk management and tracing capabilities.
+A buffered rotating logger for Go with advanced disk management, retention, and tracing capabilities.
 
 ## Features
 
@@ -15,7 +15,7 @@ A buffered rotating logger for Go with advanced disk management and tracing capa
 - Thread-safe operations using atomic counters
 - Context-aware logging with cancellation support
 - Multiple log levels (Debug, Info, Warn, Error) matching slog levels
-- Efficient JSON structured logging with zero allocations
+- Efficient JSON and TXT structured logging with zero allocations
 - Function call trace support with configurable depth
 - Graceful shutdown with context support
 - Runtime reconfiguration
@@ -34,33 +34,35 @@ go get github.com/LixenWraith/logger
 package main
 
 import (
-  "context"
-  "github.com/LixenWraith/logger"
+    "context"
+    "github.com/LixenWraith/logger"
 )
 
 func main() {
-  // config is optional, partial or no config is acceptable
-  // unconfigured parameters use default values
-  cfg := &logger.LoggerConfig{
-    Level:                  logger.LevelInfo,
-    Name:                   "myapp",
-    Directory:              "/var/log/myapp",
-    BufferSize:             1000,
-    MaxSizeMB:              100,    // Rotate files at 100MB
-    MaxTotalSizeMB:         1000,   // Keep total logs under 1GB
-    MinDiskFreeMB:          500,    // Require 500MB free space
-    TraceDepth:             2,      // Include 2 levels of function calls in trace
-    RetentionPeriod:        7.0 * 24, // Keep logs for 7 days
-    RetentionCheckInterval: 2.0 * 60, // Check every 2 hours
-  }
+    // config is optional, partial or no config is acceptable
+    // unconfigured parameters use default values
+    cfg := &logger.LoggerConfig{
+      Level:                  logger.LevelInfo,
+      Name:                   "myapp",
+      Directory:              "/var/log/myapp",
+      Format:                 "json",   // "txt" or "json", defaults to "txt"
+      BufferSize:             1000,     // log channel buffers 1000 log records
+      MaxSizeMB:              100,      // Rotate files at 100MB
+      MaxTotalSizeMB:         1000,     // Keep total logs under 1GB
+      MinDiskFreeMB:          500,      // Require 500MB free space
+      FlushTimer:             1000,     // Force writing to disk every 1 second
+      TraceDepth:             2,        // Include 2 levels of function calls in trace
+      RetentionPeriod:        7.0 * 24, // Keep logs for 7 days
+      RetentionCheckInterval: 2.0 * 60, // Check every 2 hours
+    }
 
-  ctx := context.Background()
-  if err := logger.Init(ctx, cfg); err != nil {
-    panic(err)
-  }
-  defer logger.Shutdown(ctx)
+    ctx := context.Background()
+    if err := logger.Init(ctx, cfg); err != nil {
+      panic(err)
+    }
+    defer logger.Shutdown(ctx)
 
-  logger.Info(ctx, "Application started", "version", "1.0.0")
+    logger.Info(ctx, "Application started", "version", "1.0.0")
 }
 
 ```
@@ -73,7 +75,8 @@ The `LoggerConfig` struct provides the following options:
 |------------------------|-------------------------------------------------------|-----------|
 | Level                  | Minimum log level to record                           | LevelInfo |
 | Name                   | Base name for log files                               | log       |
-| Directory              | Directory to store log files                          | .         |
+| Directory              | Directory to store log files                          | ./logs    |
+| Format                 | Log file format ("txt", "json")                       | "txt"     |
 | BufferSize             | Channel buffer size for burst handling                | 1024      |
 | MaxSizeMB              | Maximum size of each log file before rotation         | 10        |
 | MaxTotalSizeMB         | Maximum total size of log directory (0 disables)      | 50        |
@@ -116,11 +119,11 @@ simplified, doesn't need initialization (uses default config).
 clean shutdown is recommended.
 
 ```go
-logger.I("Starting app")
-logger.E(err, "operation", "db_connect", "retry", 3)
-logger.W(customError{}, "component", "cache")
-logger.D(response, "request_id", reqID)
-_ := logger.Shutdown() // to ensure logs are written if the program finishes before logs are flushed to disk
+quick.Info("Starting app")
+quick.Error(err, "operation", "db_connect", "retry", 3)
+quick.Warn(customError{}, "component", "cache")
+quick.Debug(response, "request_id", reqID)
+_ := quick.Shutdown() // to ensure all logs are written if the program finishes before logs are flushed to disk
 ```
 
 ### Runtime Reconfiguration
@@ -129,13 +132,16 @@ The logger supports live reconfiguration while preserving existing logs:
 
 ```go
 newCfg := &logger.LoggerConfig{
-Level:                logger.LevelDebug,
+Level:                  logger.LevelDebug,
 Name:                   "myapp",
 Directory:              "/new/log/path",
+Format:                 "json"
 BufferSize:             2000,
 MaxSizeMB:              200,
 MaxTotalSizeMB:         2000,
 MinDiskFreeMB:          1000,
+FlushTimer:             50,
+TraceDepth:             5,
 RetentionPeriod:        24 * 30.0,
 RetentionCheckInterval: 24 * 60.0,
 }
@@ -152,7 +158,7 @@ The logger supports automatic function call tracing with configurable depth:
 
 ```go
 cfg := &logger.LoggerConfig{
-TraceDepth: 3, // Capture up to 3 levels of function calls
+    TraceDepth: 3, // Capture up to 3 levels of function calls
 }
 ```
 
@@ -165,7 +171,7 @@ Example output with TraceDepth=2:
   "time": "2024-03-21T15:04:05.123456789Z",
   "level": "info",
   "fields": [
-    "main.processOrder -> main.validateInput"
+    "main.processOrder -> main.validateInput",
     "Order validated",
     "order_id",
     "12345"
@@ -175,39 +181,39 @@ Example output with TraceDepth=2:
 
 ### Temporary Function Call Tracing
 
-While the logger configuration supports persistent function call tracing, you can also enable tracing for specific log
+While the logger configuration supports persistent function call tracing, it can also be enabled for specific log
 entries using trace variants of logging functions:
 
 ```go
 // Context-aware logging with trace
-logger.InfoTrace(3, ctx, "Processing order", "id", orderId) // Shows 3 levels of function calls
-logger.DebugTrace(2, ctx, "Cache miss", "key", cacheKey) // Shows 2 levels
-logger.WarnTrace(4, ctx, "Retry attempt", "count", retries) // Shows 4 levels
-logger.ErrorTrace(5, ctx, "Operation failed", "error", err) // Shows 5 levels
+logger.InfoTrace(ctx, 3, "Processing order", "id", orderId) // Shows 3 levels of function calls
+logger.DebugTrace(ctx, 2, "Cache miss", "key", cacheKey)    // Shows 2 levels
+logger.WarnTrace(ctx, 4, "Retry attempt", "count", retries) // Shows 4 levels
+logger.ErrorTrace(ctx, 5, "Operation failed", "error", err) // Shows 5 levels
 
 // Simplified logging with trace
-logger.IT(3, "Worker started", "pool", poolID) // Info with 3 levels
-logger.DT(2, "Request received")                // Debug with 2 levels
-logger.WT(4, "Connection timeout")              // Warning with 4 levels
-logger.ET(5, err, "Database error") // Error with 5 levels
+quick.InfoTrace(3, "Worker started", "pool", poolID) // Info with 3 levels
+quick.DebugTrace(2, "Request received")              // Debug with 2 levels
+quick.WarnTrace(4, "Connection timeout")             // Warning with 4 levels
+quick.ErrorTrace(5, err, "Database error")           // Error with 5 levels
 ```
 
 These functions temporarily override the configured TraceDepth for a single log entry. This is useful for debugging
 specific code paths without enabling tracing for all logs:
 
 ```go
-func processOrder(orderID string) {
-// Normal log without trace
-logger.Info(ctx, "Processing started", "order", orderID)
+func processOrder(ctx context.Context, orderID string) {
+    // Normal log without trace
+    logger.Info(ctx, "Processing started", "order", orderID)
 
-if err := validate(orderID); err != nil {
-// Log error with function call trace
-logger.ErrorTrace(3, ctx, "Validation failed", "error", err)
-return
-}
+    if err := validate(orderID); err != nil {
+        // Log error with function call trace
+        logger.ErrorTrace(ctx, 3, "Validation failed", "error", err)
+        return
+    }
 
-// Back to normal logging
-logger.Info(ctx, "Processing completed", "order", orderID)
+    // Back to normal logging
+    logger.Info(ctx, "Processing completed", "order", orderID)
 }
 ```
 
@@ -216,16 +222,15 @@ to 10.
 
 ### Graceful Shutdown
 
-Package has a default flush timer of 100ms (configurable). If the program exits before it ticks there may be no logs
-written.
-To ensure logs are written either add twice the flush timer wait, or use Shutdown() method.
+Package has a default flush timer of 100ms (configurable). If the program exits before it ticks, some logs may be lost.
+To ensure logs are written, either add twice the flush timer wait, or use Shutdown() method.
 
 ```go
-ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 defer cancel()
 
 if err := logger.Shutdown(ctx); err != nil {
-// Handle error
+    // Handle error
 }
 ```
 
@@ -242,27 +247,28 @@ Debug(ctx context.Context, args ...any)
 Info(ctx context.Context, args ...any)
 Warn(ctx context.Context, args ...any)
 Error(ctx context.Context, args ...any)
+DebugTrace(ctx context.Context, depth int, args ...any)
+InfoTrace(ctx context.Context, depth int, args ...any)
+WarnTrace(ctx context.Context, depth int, args ...any)
+ErrorTrace(ctx context.Context, depth int, args ...any)
 Shutdown(ctx context.Context) error
+EnsureInitialized() bool
 ```
 
 ### Quick logging without context, auto-initializes if needed:
 
 ```go
-// simplified
-// optional: Config(cfg *LoggerConfig) error
-D(args ...any)
-I(args ...any)
-W(args ...any)
-E(args ...any)
-// optional: Shutdown() error
+// without context and initialization/config (default config is used in auto-initialization)
+Debug(args ...any)
+Info(args ...any)
+Warn(args ...any)
+Error(args ...any)
+DebugTrace(depth int, args ...any)
+InfoTrace(depth int, args ...any)
+WarnTrace(depth int, args ...any)
+ErrorTrace(depth int, args ...any)
+Shutdown() error
 ```
-
-The msg parameter accepts various types:
-
-- string: used directly
-- error: error message is extracted
-- fmt.Stringer: String() method is called
-- other types: formatted using %+v
 
 ## Implementation Details
 
@@ -279,4 +285,4 @@ The msg parameter accepts various types:
 
 ## License
 
-MIT
+MIT License
