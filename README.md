@@ -42,18 +42,18 @@ func main() {
     // config is optional, partial or no config is acceptable
     // unconfigured parameters use default values
     cfg := &logger.LoggerConfig{
-      Level:                  logger.LevelInfo,
-      Name:                   "myapp",
-      Directory:              "/var/log/myapp",
-      Format:                 "json",   // "txt" or "json", defaults to "txt"
-      BufferSize:             1000,     // log channel buffers 1000 log records
-      MaxSizeMB:              100,      // Rotate files at 100MB
-      MaxTotalSizeMB:         1000,     // Keep total logs under 1GB
-      MinDiskFreeMB:          500,      // Require 500MB free space
-      FlushTimer:             1000,     // Force writing to disk every 1 second
-      TraceDepth:             2,        // Include 2 levels of function calls in trace
-      RetentionPeriod:        7.0 * 24, // Keep logs for 7 days
-      RetentionCheckInterval: 2.0 * 60, // Check every 2 hours
+        Level:                  logger.LevelInfo,
+        Name:                   "myapp",
+        Directory:              "/var/log/myapp",
+        Format:                 "json",   // "txt" or "json", defaults to "txt"
+        BufferSize:             1000,     // log channel buffers 1000 log records
+        MaxSizeMB:              100,      // Rotate files at 100MB
+        MaxTotalSizeMB:         1000,     // Keep total logs under 1GB
+        MinDiskFreeMB:          500,      // Require 500MB free space
+        FlushTimer:             1000,     // Force writing to disk every 1 second
+        TraceDepth:             2,        // Include 2 levels of function calls in trace
+        RetentionPeriod:        7.0 * 24, // Keep logs for 7 days
+        RetentionCheckInterval: 2.0 * 60, // Check every 2 hours
     }
 
     ctx := context.Background()
@@ -123,33 +123,46 @@ quick.Info("Starting app")
 quick.Error(err, "operation", "db_connect", "retry", 3)
 quick.Warn(customError{}, "component", "cache")
 quick.Debug(response, "request_id", reqID)
-_ := quick.Shutdown() // to ensure all logs are written if the program finishes before logs are flushed to disk
+quick.Shutdown() // to ensure all logs are written if the program finishes before logs are flushed to disk
 ```
 
 ### Runtime Reconfiguration
 
-The logger supports live reconfiguration while preserving existing logs:
+The logger supports live reconfiguration while preserving existing logs.
+Note that reconfiguration starts a new log file.
 
 ```go
 newCfg := &logger.LoggerConfig{
-Level:                  logger.LevelDebug,
-Name:                   "myapp",
-Directory:              "/new/log/path",
-Format:                 "json"
-BufferSize:             2000,
-MaxSizeMB:              200,
-MaxTotalSizeMB:         2000,
-MinDiskFreeMB:          1000,
-FlushTimer:             50,
-TraceDepth:             5,
-RetentionPeriod:        24 * 30.0,
-RetentionCheckInterval: 24 * 60.0,
+  Level:                  logger.LevelDebug,
+  Name:                   "myapp",
+  Directory:              "/new/log/path",
+  Format:                 "json"
+  BufferSize:             2000,
+  MaxSizeMB:              200,
+  MaxTotalSizeMB:         2000,
+  MinDiskFreeMB:          1000,
+  FlushTimer:             50,
+  TraceDepth:             5,
+  RetentionPeriod:        24 * 30.0,
+  RetentionCheckInterval: 24 * 60.0,
 }
 
 if err := logger.Init(ctx, newCfg); err != nil {
-// Handle error
+  // Handle error
 }
+```
 
+Quick configuration is also available using key=value strings.
+Keys follow toml/json tag names of the LoggerConfig.
+
+```go
+if err := quick.Config(
+    "level=debug",
+    "format=json",
+    "max_size_mb=100",
+); err != nil {
+    // Handle error
+}
 ```
 
 ### Function Call Tracing
@@ -169,7 +182,7 @@ Example output with TraceDepth=2:
 ```json
 {
   "time": "2024-03-21T15:04:05.123456789Z",
-  "level": "info",
+  "level": "INFO",
   "fields": [
     "main.processOrder -> main.validateInput",
     "Order validated",
@@ -218,7 +231,7 @@ func processOrder(ctx context.Context, orderID string) {
 ```
 
 The trace depth parameter works the same way as the TraceDepth configuration option, accepting values from 0 (no trace)
-to 10.
+to 10. Logging with high value of trace depth may affect performance.
 
 ### Graceful Shutdown
 
@@ -226,7 +239,7 @@ Package has a default flush timer of 100ms (configurable). If the program exits 
 To ensure logs are written, either add twice the flush timer wait, or use Shutdown() method.
 
 ```go
-ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond) // force shutdown after 0.5 second
 defer cancel()
 
 if err := logger.Shutdown(ctx); err != nil {
@@ -259,15 +272,19 @@ EnsureInitialized() bool
 
 ```go
 // without context and initialization/config (default config is used in auto-initialization)
+Config(args ...string)
 Debug(args ...any)
 Info(args ...any)
 Warn(args ...any)
 Error(args ...any)
+Log(args ...any)
+Message(args ...any)
 DebugTrace(depth int, args ...any)
 InfoTrace(depth int, args ...any)
 WarnTrace(depth int, args ...any)
 ErrorTrace(depth int, args ...any)
-Shutdown() error
+LogTrace(deptch int, args ...any)
+Shutdown()
 ```
 
 ## Implementation Details

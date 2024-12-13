@@ -19,25 +19,25 @@ func Init(ctx context.Context, cfg ...*LoggerConfig) error {
 // Debug logs a message at debug level with the given context and additional arguments.
 // Messages are dropped if the logger's level is higher than debug or if logger is not initialized.
 func Debug(logCtx context.Context, args ...any) {
-	log(logCtx, LevelDebug, traceDepth, args...)
+	log(logCtx, flags, LevelDebug, traceDepth, args...)
 }
 
 // Info logs a message at info level with the given context and additional arguments.
 // Messages are dropped if the logger's level is higher than info or if logger is not initialized.
 func Info(logCtx context.Context, args ...any) {
-	log(logCtx, LevelInfo, traceDepth, args...)
+	log(logCtx, flags, LevelInfo, traceDepth, args...)
 }
 
 // Warn logs a message at warning level with the given context and additional arguments.
 // Messages are dropped if the logger's level is higher than warn or if logger is not initialized.
 func Warn(logCtx context.Context, args ...any) {
-	log(logCtx, LevelWarn, traceDepth, args...)
+	log(logCtx, flags, LevelWarn, traceDepth, args...)
 }
 
 // Error logs a message at error level with the given context and additional arguments.
 // Messages are dropped if the logger's level is higher than error or if logger is not initialized.
 func Error(logCtx context.Context, args ...any) {
-	log(logCtx, LevelError, traceDepth, args...)
+	log(logCtx, flags, LevelError, traceDepth, args...)
 }
 
 // Shutdown gracefully shuts down the logger, ensuring all buffered messages are written
@@ -52,22 +52,22 @@ func Shutdown(ctx ...context.Context) error {
 
 // DebugTrace is Debug log with trace.
 func DebugTrace(logCtx context.Context, depth int, args ...any) {
-	log(logCtx, LevelDebug, int64(depth), args...)
+	log(logCtx, flags, LevelDebug, int64(depth), args...)
 }
 
 // InfoTrace is Info log with trace.
 func InfoTrace(logCtx context.Context, depth int, args ...any) {
-	log(logCtx, LevelInfo, int64(depth), args...)
+	log(logCtx, flags, LevelInfo, int64(depth), args...)
 }
 
 // WarnTrace is Warn log with trace.
 func WarnTrace(logCtx context.Context, depth int, args ...any) {
-	log(logCtx, LevelWarn, int64(depth), args...)
+	log(logCtx, flags, LevelWarn, int64(depth), args...)
 }
 
 // ErrorTrace is Error log with trace.
 func ErrorTrace(logCtx context.Context, depth int, args ...any) {
-	log(logCtx, LevelError, int64(depth), args...)
+	log(logCtx, flags, LevelError, int64(depth), args...)
 }
 
 // Config initializes the logger with the provided configuration.
@@ -80,4 +80,12 @@ func Config(cfg *LoggerConfig) error {
 // returns false if logger cannot be initialized.
 func EnsureInitialized() bool {
 	return ensureInitialized()
+}
+
+// LogWithFlags allows custom flag control for logging with specified flags, level and trace depth
+func LogWithFlags(ctx context.Context, flags int64, level int64, depth int64, args ...any) {
+	if depth == -1 {
+		depth = traceDepth
+	}
+	log(ctx, flags, level, depth, args...)
 }

@@ -25,6 +25,15 @@ var (
 
 	flushTimer time.Duration
 	traceDepth int64
+
+	flags int64
+)
+
+const (
+	// Record flags for controlling output structure
+	FlagShowTimestamp int64 = 0b01
+	FlagShowLevel     int64 = 0b10
+	FlagDefault             = FlagShowTimestamp | FlagShowLevel
 )
 
 // logRecord represents a single log entry with its complete context and metadata.
@@ -32,6 +41,7 @@ var (
 type logRecord struct {
 	LogCtx context.Context
 	Level  int64
+	Flags  int64
 	Args   []any
 }
 
@@ -54,7 +64,7 @@ func init() {
 
 // log handles the actual logging operation including dropped log detection and disk space checks.
 // It buffers log records through a channel for asynchronous processing.
-func log(logCtx context.Context, level int64, depth int64, args ...any) {
+func log(logCtx context.Context, flags int64, level int64, depth int64, args ...any) {
 	// Check if logger is initialized and if log should be processed based on level
 	if !isInitialized.Load() {
 		return
@@ -79,6 +89,7 @@ func log(logCtx context.Context, level int64, depth int64, args ...any) {
 		dropRecord := logRecord{
 			LogCtx: context.Background(),
 			Level:  LevelError,
+			Flags:  FlagDefault,
 			Args: []any{
 				"Logs were dropped",
 				"dropped_count", currentDrops - logged,
@@ -101,6 +112,7 @@ func log(logCtx context.Context, level int64, depth int64, args ...any) {
 	record := logRecord{
 		LogCtx: logCtx,
 		Level:  level,
+		Flags:  flags,
 		Args:   logArgs,
 	}
 
@@ -157,7 +169,7 @@ func processLogs() {
 
 			// Create log entry and write
 			s := newSerializer()
-			data := s.serialize(record.Level, record.Args)
+			data := s.serialize(record.Flags, record.Level, record.Args)
 
 			// Check file size and rotate if needed
 			currentFileSize := currentSize.Load()

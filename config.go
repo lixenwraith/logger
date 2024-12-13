@@ -28,6 +28,8 @@ type LoggerConfig struct {
 	Name                   string  `json:"name" toml:"name"`                                         // Base name for log files
 	Directory              string  `json:"directory" toml:"directory"`                               // Directory to store log files
 	Format                 string  `json:"format" toml:"format"`                                     // Serialized output file type: txt, json
+	ShowTimestamp          bool    `json:"show_timestamp" toml:"show_timestamp"`                     // Enable time stamp (default enabled)
+	ShowLevel              bool    `json:"show_level" toml:"show_level"`                             // Enable level (default enabled)
 	BufferSize             int64   `json:"buffer_size" toml:"buffer_size"`                           // Channel buffer size
 	MaxSizeMB              int64   `json:"max_size_mb" toml:"max_size_mb"`                           // Max size of each log file in MB
 	MaxTotalSizeMB         int64   `json:"max_total_size_mb" toml:"max_total_size_mb"`               // Max total size of the log folder in MB to trigger old log deletion/pause logging
@@ -47,6 +49,8 @@ func configLogger(ctx context.Context, cfg ...*LoggerConfig) error {
 		Name:                   "log",
 		Directory:              "./logs",
 		Format:                 "txt",
+		ShowTimestamp:          true,
+		ShowLevel:              true,
 		BufferSize:             1024,
 		MaxSizeMB:              10,
 		MaxTotalSizeMB:         50,
@@ -59,23 +63,54 @@ func configLogger(ctx context.Context, cfg ...*LoggerConfig) error {
 
 	if len(cfg) == 0 {
 		return initLogger(ctx, defaultConfig)
-	} else {
-		userConfig := cfg[0]
-		mergedCfg := &LoggerConfig{
-			Level:                  getConfigValue(defaultConfig.Level, userConfig.Level),
-			Name:                   getConfigValue(defaultConfig.Name, userConfig.Name),
-			Directory:              getConfigValue(defaultConfig.Directory, userConfig.Directory),
-			Format:                 getConfigValue(defaultConfig.Format, userConfig.Format),
-			BufferSize:             getConfigValue(defaultConfig.BufferSize, userConfig.BufferSize),
-			MaxSizeMB:              getConfigValue(defaultConfig.MaxSizeMB, userConfig.MaxSizeMB),
-			MaxTotalSizeMB:         getConfigValue(defaultConfig.MaxTotalSizeMB, userConfig.MaxTotalSizeMB),
-			MinDiskFreeMB:          getConfigValue(defaultConfig.MinDiskFreeMB, userConfig.MinDiskFreeMB),
-			FlushTimer:             getConfigValue(defaultConfig.FlushTimer, userConfig.FlushTimer),
-			TraceDepth:             getConfigValue(defaultConfig.TraceDepth, userConfig.TraceDepth),
-			RetentionPeriod:        getConfigValue(defaultConfig.RetentionPeriod, userConfig.RetentionPeriod),
-			RetentionCheckInterval: getConfigValue(defaultConfig.RetentionCheckInterval, userConfig.RetentionCheckInterval),
+	}
+
+	userConfig := cfg[0]
+	var mergedCfg *LoggerConfig
+
+	if isInitialized.Load() {
+		// Merge with current running config
+		currentCfg := &LoggerConfig{
+			Level:                  logLevel.Load().(int64),
+			Name:                   name,
+			Directory:              directory,
+			Format:                 format,
+			ShowTimestamp:          flags&FlagShowTimestamp != 0,
+			ShowLevel:              flags&FlagShowLevel != 0,
+			BufferSize:             bufferSize.Load(),
+			MaxSizeMB:              maxSizeMB,
+			MaxTotalSizeMB:         maxTotalSizeMB,
+			MinDiskFreeMB:          minDiskFreeMB,
+			FlushTimer:             int64(flushTimer / time.Millisecond),
+			TraceDepth:             traceDepth,
+			RetentionPeriod:        float64(retentionPeriod / time.Hour),
+			RetentionCheckInterval: float64(retentionCheck / time.Minute),
 		}
-		return initLogger(ctx, mergedCfg)
+		mergedCfg = mergeConfigs(currentCfg, userConfig)
+	} else {
+		mergedCfg = mergeConfigs(defaultConfig, userConfig)
+	}
+
+	return initLogger(ctx, mergedCfg)
+}
+
+// mergeConfigs overrides base values for non-zero values in override
+func mergeConfigs(base, override *LoggerConfig) *LoggerConfig {
+	return &LoggerConfig{
+		Level:                  getConfigValue(base.Level, override.Level),
+		Name:                   getConfigValue(base.Name, override.Name),
+		Directory:              getConfigValue(base.Directory, override.Directory),
+		Format:                 getConfigValue(base.Format, override.Format),
+		ShowTimestamp:          getConfigValue(base.ShowTimestamp, override.ShowTimestamp),
+		ShowLevel:              getConfigValue(base.ShowLevel, override.ShowLevel),
+		BufferSize:             getConfigValue(base.BufferSize, override.BufferSize),
+		MaxSizeMB:              getConfigValue(base.MaxSizeMB, override.MaxSizeMB),
+		MaxTotalSizeMB:         getConfigValue(base.MaxTotalSizeMB, override.MaxTotalSizeMB),
+		MinDiskFreeMB:          getConfigValue(base.MinDiskFreeMB, override.MinDiskFreeMB),
+		FlushTimer:             getConfigValue(base.FlushTimer, override.FlushTimer),
+		TraceDepth:             getConfigValue(base.TraceDepth, override.TraceDepth),
+		RetentionPeriod:        getConfigValue(base.RetentionPeriod, override.RetentionPeriod),
+		RetentionCheckInterval: getConfigValue(base.RetentionCheckInterval, override.RetentionCheckInterval),
 	}
 }
 
@@ -89,51 +124,22 @@ func initLogger(ctx context.Context, cfg *LoggerConfig) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
-		// Setup directory and validate disk space configuration
-		directory = cfg.Directory
-		if directory == "" {
-			directory = "."
+		if err := applyConfig(ctx, cfg); err != nil {
+			return err
 		}
+
 		if err := os.MkdirAll(directory, 0755); err != nil {
 			return fmt.Errorf("failed to create log directory: %w", err)
 		}
 
-		name = cfg.Name
-		format = cfg.Format
-		maxSizeMB = cfg.MaxSizeMB
-		maxTotalSizeMB = cfg.MaxTotalSizeMB
-		minDiskFreeMB = cfg.MinDiskFreeMB
-		flushTimer = time.Duration(cfg.FlushTimer) * time.Millisecond
-		retentionPeriod = time.Duration(cfg.RetentionPeriod * float64(time.Hour))
-		retentionCheck = time.Duration(cfg.RetentionCheckInterval * float64(time.Minute))
-
-		newBufferSize := cfg.BufferSize
-		if newBufferSize < 1 {
-			newBufferSize = 1000
-		}
-
-		if maxTotalSizeMB < 0 || minDiskFreeMB < 0 {
-			return fmt.Errorf("invalid disk space configuration")
-		}
-
-		if cfg.TraceDepth < 0 || cfg.TraceDepth > 10 {
-			return fmt.Errorf("invalid trace depth: must be between 0 and 10")
-		}
-		traceDepth = cfg.TraceDepth
-
-		// Handle reconfiguration of existing logger
+		// Handle reconfiguration
 		if isInitialized.Load() {
 			if processCancel != nil {
 				processCancel()
 			}
 
-			logLevel.Store(cfg.Level)
-
-			if newBufferSize != bufferSize.Load() {
-				oldChannel := logChannel
-				logChannel = make(chan logRecord, newBufferSize)
-				bufferSize.Store(newBufferSize)
-				close(oldChannel)
+			if bufferSize.Load() != cfg.BufferSize {
+				close(logChannel)
 			}
 		}
 
@@ -144,10 +150,7 @@ func initLogger(ctx context.Context, cfg *LoggerConfig) error {
 		}
 
 		currentFile.Store(logFile)
-		logLevel.Store(cfg.Level)
-		bufferSize.Store(newBufferSize)
-
-		logChannel = make(chan logRecord, newBufferSize)
+		logChannel = make(chan logRecord, bufferSize.Load())
 
 		processCtx, processCancel = context.WithCancel(ctx)
 		go processLogs()
@@ -155,6 +158,50 @@ func initLogger(ctx context.Context, cfg *LoggerConfig) error {
 		isInitialized.Store(true)
 		return nil
 	}
+}
+
+// applyConfig sets the running config
+func applyConfig(ctx context.Context, cfg *LoggerConfig) error {
+	flags = 0
+	if cfg.ShowLevel {
+		flags |= FlagShowLevel
+	}
+	if cfg.ShowTimestamp {
+		flags |= FlagShowTimestamp
+	}
+
+	directory = cfg.Directory
+	if directory == "" {
+		directory = "."
+	}
+
+	name = cfg.Name
+	format = cfg.Format
+	maxSizeMB = cfg.MaxSizeMB
+	maxTotalSizeMB = cfg.MaxTotalSizeMB
+	minDiskFreeMB = cfg.MinDiskFreeMB
+	flushTimer = time.Duration(cfg.FlushTimer) * time.Millisecond
+	retentionPeriod = time.Duration(cfg.RetentionPeriod * float64(time.Hour))
+	retentionCheck = time.Duration(cfg.RetentionCheckInterval * float64(time.Minute))
+
+	newBufferSize := cfg.BufferSize
+	if newBufferSize < 1 {
+		newBufferSize = 1000
+	}
+
+	if maxTotalSizeMB < 0 || minDiskFreeMB < 0 {
+		return fmt.Errorf("invalid disk space configuration")
+	}
+
+	if cfg.TraceDepth < 0 || cfg.TraceDepth > 10 {
+		return fmt.Errorf("invalid trace depth: must be between 0 and 10")
+	}
+	traceDepth = cfg.TraceDepth
+
+	logLevel.Store(cfg.Level)
+	bufferSize.Store(newBufferSize)
+
+	return nil
 }
 
 // getConfigValue returns defaultVal if cfgVal equals the zero value for type T,

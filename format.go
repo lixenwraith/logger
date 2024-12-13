@@ -13,15 +13,13 @@ var (
 
 // serializer manages the buffered writing of log entries in different formats
 type serializer struct {
-	buf    []byte
-	format string
+	buf []byte
 }
 
 // newSerializer creates a serializer instance to be used by processor
 func newSerializer() *serializer {
 	return &serializer{
-		buf:    make([]byte, 0, 1024),
-		format: format,
+		buf: make([]byte, 0, 1024),
 	}
 }
 
@@ -31,52 +29,73 @@ func (s *serializer) reset() {
 }
 
 // serialize converts log entries to either JSON or text format based on configuration
-func (s *serializer) serialize(level int64, args []any) []byte {
+func (s *serializer) serialize(flags int64, level int64, args []any) []byte {
 	s.reset()
 
-	if s.format == "json" {
-		return s.serializeJSON(level, args)
+	if format == "json" {
+		return s.serializeJSON(flags, level, args)
 	}
-	return s.serializeText(level, args)
+	return s.serializeText(flags, level, args)
 }
 
 // serializeJSON formats log entries as JSON with time, level and fields
-func (s *serializer) serializeJSON(level int64, args []any) []byte {
+func (s *serializer) serializeJSON(flags int64, level int64, args []any) []byte {
 	s.buf = append(s.buf, '{')
 
-	// Time is always first
-	s.buf = append(s.buf, `"time":"`...)
-	s.buf = append(s.buf, time.Now().Format(time.RFC3339Nano)...)
-	s.buf = append(s.buf, '"')
-
-	// Level is always second
-	s.buf = append(s.buf, `,"level":"`...)
-	s.buf = append(s.buf, levelToString(level)...)
-	s.buf = append(s.buf, '"')
-
-	// Fields as ordered array. if enabled, trace is the first field.
-	s.buf = append(s.buf, `,"fields":[`...)
-
-	for i, arg := range args {
-		if i > 0 {
-			s.buf = append(s.buf, ',')
-		}
-		s.writeJSONValue(arg)
+	// Time is always first when enabled
+	if flags&FlagShowTimestamp != 0 {
+		s.buf = append(s.buf, `"time":"`...)
+		s.buf = append(s.buf, time.Now().Format(time.RFC3339Nano)...)
+		s.buf = append(s.buf, '"')
 	}
 
-	s.buf = append(s.buf, ']', '}', '\n')
+	// Level is always second when enabled
+	if flags&FlagShowLevel != 0 {
+		s.buf = append(s.buf, `"level":"`...)
+		s.buf = append(s.buf, levelToString(level)...)
+		s.buf = append(s.buf, '"')
+
+		// Add comma if there are more fields
+		if len(args) > 0 {
+			s.buf = append(s.buf, ',')
+		}
+	}
+
+	// Fields as ordered array. if enabled, trace is the first field.
+	if len(args) > 0 {
+		if flags&(FlagShowTimestamp|FlagShowLevel) == 0 {
+			// If no previous fields, start fresh
+			s.buf = append(s.buf, `"fields":[`...)
+		} else {
+			s.buf = append(s.buf, `,"fields":[`...)
+		}
+
+		for i, arg := range args {
+			if i > 0 {
+				s.buf = append(s.buf, ',')
+			}
+			s.writeJSONValue(arg)
+		}
+		s.buf = append(s.buf, ']')
+	}
+
+	s.buf = append(s.buf, '}', '\n')
 	return s.buf
 }
 
 // serializeText formats log entries as plain text with time, level and space-separated fields
-func (s *serializer) serializeText(level int64, args []any) []byte {
-	// Time stamp
-	s.buf = append(s.buf, time.Now().Format(time.RFC3339Nano)...)
-	s.buf = append(s.buf, ' ')
+func (s *serializer) serializeText(flags int64, level int64, args []any) []byte {
+	// Time stamp if enabled
+	if flags&FlagShowTimestamp != 0 {
+		s.buf = append(s.buf, time.Now().Format(time.RFC3339Nano)...)
+		s.buf = append(s.buf, ' ')
+	}
 
-	// Level in uppercase
-	s.buf = append(s.buf, levelToString(level)...)
-	s.buf = append(s.buf, ' ')
+	// Level in uppercase if enabled
+	if flags&FlagShowLevel != 0 {
+		s.buf = append(s.buf, levelToString(level)...)
+		s.buf = append(s.buf, ' ')
+	}
 
 	// Fields as space-separated values
 	for i, arg := range args {

@@ -13,6 +13,7 @@ func main() {
 	cfg := &logger.LoggerConfig{
 		Level:     logger.LevelDebug,
 		Directory: "./logs",
+		Format:    "json",
 	}
 
 	if err := logger.Init(ctx, cfg); err != nil {
