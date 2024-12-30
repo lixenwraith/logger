@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,6 +29,7 @@ type LoggerConfig struct {
 	Name                   string  `json:"name" toml:"name"`                                         // Base name for log files
 	Directory              string  `json:"directory" toml:"directory"`                               // Directory to store log files
 	Format                 string  `json:"format" toml:"format"`                                     // Serialized output file type: txt, json
+	Extension              string  `json:"extension" toml:"extension"`                               // Log file extension (default "log", empty = use format)
 	ShowTimestamp          bool    `json:"show_timestamp" toml:"show_timestamp"`                     // Enable time stamp (default enabled)
 	ShowLevel              bool    `json:"show_level" toml:"show_level"`                             // Enable level (default enabled)
 	BufferSize             int64   `json:"buffer_size" toml:"buffer_size"`                           // Channel buffer size
@@ -49,6 +51,7 @@ func configLogger(ctx context.Context, cfg ...*LoggerConfig) error {
 		Name:                   "log",
 		Directory:              "./logs",
 		Format:                 "txt",
+		Extension:              "log",
 		ShowTimestamp:          true,
 		ShowLevel:              true,
 		BufferSize:             1024,
@@ -75,6 +78,7 @@ func configLogger(ctx context.Context, cfg ...*LoggerConfig) error {
 			Name:                   name,
 			Directory:              directory,
 			Format:                 format,
+			Extension:              extension,
 			ShowTimestamp:          flags&FlagShowTimestamp != 0,
 			ShowLevel:              flags&FlagShowLevel != 0,
 			BufferSize:             bufferSize.Load(),
@@ -101,6 +105,7 @@ func mergeConfigs(base, override *LoggerConfig) *LoggerConfig {
 		Name:                   getConfigValue(base.Name, override.Name),
 		Directory:              getConfigValue(base.Directory, override.Directory),
 		Format:                 getConfigValue(base.Format, override.Format),
+		Extension:              getConfigValue(base.Extension, override.Extension),
 		ShowTimestamp:          getConfigValue(base.ShowTimestamp, override.ShowTimestamp),
 		ShowLevel:              getConfigValue(base.ShowLevel, override.ShowLevel),
 		BufferSize:             getConfigValue(base.BufferSize, override.BufferSize),
@@ -177,6 +182,19 @@ func applyConfig(ctx context.Context, cfg *LoggerConfig) error {
 
 	name = cfg.Name
 	format = cfg.Format
+
+	if cfg.Extension != "" {
+		if strings.HasPrefix(cfg.Extension, ".") {
+			return fmt.Errorf("extension should not start with dot: %s", cfg.Extension)
+		}
+		extension = cfg.Extension
+	} else if cfg.Format != "" {
+		// Use format as extension if no explicit extension provided
+		extension = cfg.Format
+	} else {
+		extension = "log"
+	}
+
 	maxSizeMB = cfg.MaxSizeMB
 	maxTotalSizeMB = cfg.MaxTotalSizeMB
 	minDiskFreeMB = cfg.MinDiskFreeMB
@@ -219,8 +237,8 @@ func getConfigValue[T comparable](defaultVal, cfgVal T) T {
 // even if multiple shutdown paths are triggered simultaneously.
 var shutdownOnce sync.Once
 
-// generateLogFileName creates a unique log filename using timestamp with increasing precision.
-// It ensures uniqueness by progressively adding more precise subsecond components.
+// shutdownLogger performs a graceful shutdown of the logger, ensuring all buffered logs
+// are written and files are properly closed. It respects context cancellation for timeout control.
 func shutdownLogger(ctx context.Context) error {
 	mu.Lock()
 	defer mu.Unlock()

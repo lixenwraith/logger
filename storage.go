@@ -53,7 +53,7 @@ func getLogDirSize(dir string) (int64, error) {
 		if err != nil {
 			continue
 		}
-		if !info.IsDir() && filepath.Ext(entry.Name()) == ".log" {
+		if !info.IsDir() && filepath.Ext(entry.Name()) == "."+extension {
 			size += info.Size()
 		}
 	}
@@ -77,7 +77,7 @@ func cleanOldLogs(ctx context.Context, required int64) error {
 
 	var logs []logFile
 	for _, entry := range entries {
-		if filepath.Ext(entry.Name()) != ".log" {
+		if filepath.Ext(entry.Name()) != "."+extension {
 			continue
 		}
 		info, err := entry.Info()
@@ -195,7 +195,7 @@ func updateEarliestFileTime() {
 		}
 
 		// Skip if not a log file or doesn't match the instance prefix
-		if !strings.HasPrefix(fname, prefix) || filepath.Ext(fname) != ".log" {
+		if !strings.HasPrefix(fname, prefix) || filepath.Ext(fname) != "."+extension {
 			continue
 		}
 
@@ -231,8 +231,9 @@ func cleanExpiredLogs(ctx context.Context, oldest time.Time) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+
 		default:
-			if filepath.Ext(entry.Name()) != ".log" {
+			if filepath.Ext(entry.Name()) != "."+extension {
 				continue
 			}
 			info, err := entry.Info()

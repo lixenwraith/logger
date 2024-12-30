@@ -34,35 +34,36 @@ go get github.com/LixenWraith/logger
 package main
 
 import (
-    "context"
-    "github.com/LixenWraith/logger"
+	"context"
+	"github.com/LixenWraith/logger"
 )
 
 func main() {
-    // config is optional, partial or no config is acceptable
-    // unconfigured parameters use default values
-    cfg := &logger.LoggerConfig{
-        Level:                  logger.LevelInfo,
-        Name:                   "myapp",
-        Directory:              "/var/log/myapp",
-        Format:                 "json",   // "txt" or "json", defaults to "txt"
-        BufferSize:             1000,     // log channel buffers 1000 log records
-        MaxSizeMB:              100,      // Rotate files at 100MB
-        MaxTotalSizeMB:         1000,     // Keep total logs under 1GB
-        MinDiskFreeMB:          500,      // Require 500MB free space
-        FlushTimer:             1000,     // Force writing to disk every 1 second
-        TraceDepth:             2,        // Include 2 levels of function calls in trace
-        RetentionPeriod:        7.0 * 24, // Keep logs for 7 days
-        RetentionCheckInterval: 2.0 * 60, // Check every 2 hours
-    }
+	// config is optional, partial or no config is acceptable
+	// unconfigured parameters use default values
+	cfg := &logger.LoggerConfig{
+		Level:                  logger.LevelInfo,
+		Name:                   "myapp",
+		Directory:              "/var/log/myapp",
+		Format:                 "json",   // "txt" or "json", defaults to "txt"
+		Extension:              "app",    // log file extension (default "log", empty = use format)
+		BufferSize:             1000,     // log channel buffers 1000 log records
+		MaxSizeMB:              100,      // Rotate files at 100MB
+		MaxTotalSizeMB:         1000,     // Keep total logs under 1GB
+		MinDiskFreeMB:          500,      // Require 500MB free space
+		FlushTimer:             1000,     // Force writing to disk every 1 second
+		TraceDepth:             2,        // Include 2 levels of function calls in trace
+		RetentionPeriod:        7.0 * 24, // Keep logs for 7 days
+		RetentionCheckInterval: 2.0 * 60, // Check every 2 hours
+	}
 
-    ctx := context.Background()
-    if err := logger.Init(ctx, cfg); err != nil {
-      panic(err)
-    }
-    defer logger.Shutdown(ctx)
+	ctx := context.Background()
+	if err := logger.Init(ctx, cfg); err != nil {
+		panic(err)
+	}
+	defer logger.Shutdown(ctx)
 
-    logger.Info(ctx, "Application started", "version", "1.0.0")
+	logger.Info(ctx, "Application started", "version", "1.0.0")
 }
 
 ```
@@ -77,6 +78,9 @@ The `LoggerConfig` struct provides the following options:
 | Name                   | Base name for log files                               | log       |
 | Directory              | Directory to store log files                          | ./logs    |
 | Format                 | Log file format ("txt", "json")                       | "txt"     |
+| Extension              | Log file extension (default: .log)                    | "log"     |
+| ShowTimestamp          | Show timestamp in log entries                         | true      |
+| ShowLevel              | Show log level in entries                             | true      |
 | BufferSize             | Channel buffer size for burst handling                | 1024      |
 | MaxSizeMB              | Maximum size of each log file before rotation         | 10        |
 | MaxTotalSizeMB         | Maximum total size of log directory (0 disables)      | 50        |
@@ -133,22 +137,23 @@ Note that reconfiguration starts a new log file.
 
 ```go
 newCfg := &logger.LoggerConfig{
-  Level:                  logger.LevelDebug,
-  Name:                   "myapp",
-  Directory:              "/new/log/path",
-  Format:                 "json"
-  BufferSize:             2000,
-  MaxSizeMB:              200,
-  MaxTotalSizeMB:         2000,
-  MinDiskFreeMB:          1000,
-  FlushTimer:             50,
-  TraceDepth:             5,
-  RetentionPeriod:        24 * 30.0,
-  RetentionCheckInterval: 24 * 60.0,
+Level:                  logger.LevelDebug,
+Name:                   "myapp",
+Directory:              "/new/log/path",
+Format:                 "json",
+Extension:              "json",
+BufferSize:             2000,
+MaxSizeMB:              200,
+MaxTotalSizeMB:         2000,
+MinDiskFreeMB:          1000,
+FlushTimer:             50,
+TraceDepth:             5,
+RetentionPeriod:        24 * 30.0,
+RetentionCheckInterval: 24 * 60.0,
 }
 
 if err := logger.Init(ctx, newCfg); err != nil {
-  // Handle error
+// Handle error
 }
 ```
 
@@ -157,11 +162,11 @@ Keys follow toml/json tag names of the LoggerConfig.
 
 ```go
 if err := quick.Config(
-    "level=debug",
-    "format=json",
-    "max_size_mb=100",
+"level=debug",
+"format=json",
+"max_size_mb=100",
 ); err != nil {
-    // Handle error
+// Handle error
 }
 ```
 
@@ -171,7 +176,7 @@ The logger supports automatic function call tracing with configurable depth:
 
 ```go
 cfg := &logger.LoggerConfig{
-    TraceDepth: 3, // Capture up to 3 levels of function calls
+TraceDepth: 3, // Capture up to 3 levels of function calls
 }
 ```
 
@@ -200,7 +205,7 @@ entries using trace variants of logging functions:
 ```go
 // Context-aware logging with trace
 logger.InfoTrace(ctx, 3, "Processing order", "id", orderId) // Shows 3 levels of function calls
-logger.DebugTrace(ctx, 2, "Cache miss", "key", cacheKey)    // Shows 2 levels
+logger.DebugTrace(ctx, 2, "Cache miss", "key", cacheKey) // Shows 2 levels
 logger.WarnTrace(ctx, 4, "Retry attempt", "count", retries) // Shows 4 levels
 logger.ErrorTrace(ctx, 5, "Operation failed", "error", err) // Shows 5 levels
 
@@ -208,7 +213,7 @@ logger.ErrorTrace(ctx, 5, "Operation failed", "error", err) // Shows 5 levels
 quick.InfoTrace(3, "Worker started", "pool", poolID) // Info with 3 levels
 quick.DebugTrace(2, "Request received")              // Debug with 2 levels
 quick.WarnTrace(4, "Connection timeout")             // Warning with 4 levels
-quick.ErrorTrace(5, err, "Database error")           // Error with 5 levels
+quick.ErrorTrace(5, err, "Database error") // Error with 5 levels
 ```
 
 These functions temporarily override the configured TraceDepth for a single log entry. This is useful for debugging
@@ -216,17 +221,17 @@ specific code paths without enabling tracing for all logs:
 
 ```go
 func processOrder(ctx context.Context, orderID string) {
-    // Normal log without trace
-    logger.Info(ctx, "Processing started", "order", orderID)
+// Normal log without trace
+logger.Info(ctx, "Processing started", "order", orderID)
 
-    if err := validate(orderID); err != nil {
-        // Log error with function call trace
-        logger.ErrorTrace(ctx, 3, "Validation failed", "error", err)
-        return
-    }
+if err := validate(orderID); err != nil {
+// Log error with function call trace
+logger.ErrorTrace(ctx, 3, "Validation failed", "error", err)
+return
+}
 
-    // Back to normal logging
-    logger.Info(ctx, "Processing completed", "order", orderID)
+// Back to normal logging
+logger.Info(ctx, "Processing completed", "order", orderID)
 }
 ```
 
@@ -243,7 +248,7 @@ ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond) /
 defer cancel()
 
 if err := logger.Shutdown(ctx); err != nil {
-    // Handle error
+// Handle error
 }
 ```
 
@@ -283,7 +288,7 @@ DebugTrace(depth int, args ...any)
 InfoTrace(depth int, args ...any)
 WarnTrace(depth int, args ...any)
 ErrorTrace(depth int, args ...any)
-LogTrace(deptch int, args ...any)
+LogTrace(depth int, args ...any)
 Shutdown()
 ```
 

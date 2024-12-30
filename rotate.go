@@ -10,16 +10,17 @@ import (
 
 // File naming variables
 var (
-	name string
+	name      string
+	extension string
 )
 
 // generateLogFileName creates a unique log filename using timestamp with increasing precision.
 // It ensures uniqueness by progressively adding more precise subsecond components.
-func generateLogFileName(ctx context.Context, baseName string, timestamp time.Time) (string, error) {
+func generateLogFileName(baseName string, timestamp time.Time) (string, error) {
 	baseTimestamp := timestamp.Format("060102_150405")
 	// Always include first decimal place (tenth of a second)
 	tenths := (timestamp.UnixNano() % 1e9) / 1e8
-	filename := fmt.Sprintf("%s_%s.%d.log", baseName, baseTimestamp, tenths)
+	filename := fmt.Sprintf("%s_%s_%d.%s", baseName, baseTimestamp, tenths, extension)
 	fullPath := filepath.Join(directory, filename)
 
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
@@ -30,10 +31,8 @@ func generateLogFileName(ctx context.Context, baseName string, timestamp time.Ti
 	for precision := 2; precision <= 9; precision++ {
 		subseconds := timestamp.UnixNano() % 1e9 / pow10(9-precision)
 		subsecFormat := fmt.Sprintf("%%0%dd", precision)
-		filename = fmt.Sprintf("%s_%s_%s.log",
-			baseName,
-			baseTimestamp,
-			fmt.Sprintf(subsecFormat, subseconds))
+		filename = fmt.Sprintf("%s_%s_%s.%s",
+			baseName, baseTimestamp, fmt.Sprintf(subsecFormat, subseconds), extension)
 
 		fullPath = filepath.Join(directory, filename)
 		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
@@ -60,7 +59,7 @@ func createNewLogFile(ctx context.Context) (*os.File, error) {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
-		filename, err := generateLogFileName(ctx, name, time.Now())
+		filename, err := generateLogFileName(name, time.Now())
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate log filename: %w", err)
 		}
