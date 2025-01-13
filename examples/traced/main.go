@@ -14,6 +14,7 @@ func main() {
 	cfg := &logger.LoggerConfig{
 		Directory:  "./logs",
 		TraceDepth: 8,
+		Format:     "json",
 	}
 
 	if err := logger.Init(ctx, cfg); err != nil {

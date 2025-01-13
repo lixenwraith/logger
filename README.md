@@ -307,4 +307,4 @@ Shutdown()
 
 ## License
 
-MIT License
+BSD-3

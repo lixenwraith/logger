@@ -32,7 +32,7 @@ func main() {
 						"iteration", j,
 						"status", "retry")
 				} else {
-					quick.Info("Processed",
+					quick.InfoTrace(2, "Processed",
 						"worker", id,
 						"iteration", j,
 						"status", "success")
@@ -62,7 +62,7 @@ func main() {
 		"workers", 3,
 		"iterations", 5,
 		"errors", 1,
-		"timestamp", time.Now().Unix(),
+		"timestamp", time.Now(),
 		"metadata", map[string]interface{}{
 			"host":    "localhost",
 			"pid":     os.Getpid(),

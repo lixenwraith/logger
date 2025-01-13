@@ -39,10 +39,12 @@ const (
 // logRecord represents a single log entry with its complete context and metadata.
 // It encapsulates all information needed to write a structured log entry.
 type logRecord struct {
-	LogCtx context.Context
-	Level  int64
-	Flags  int64
-	Args   []any
+	LogCtx    context.Context
+	Flags     int64
+	TimeStamp time.Time
+	Level     int64
+	Trace     string
+	Args      []any
 }
 
 // init sets up a finalizer to handle non-graceful program termination.
@@ -87,9 +89,10 @@ func log(logCtx context.Context, flags int64, level int64, depth int64, args ...
 		// current dropped log counter to avoid conflict.
 		loggedDrops.Store(currentDrops)
 		dropRecord := logRecord{
-			LogCtx: context.Background(),
-			Level:  LevelError,
-			Flags:  FlagDefault,
+			LogCtx:    context.Background(),
+			Flags:     FlagDefault,
+			TimeStamp: time.Now(),
+			Level:     LevelError,
 			Args: []any{
 				"Logs were dropped",
 				"dropped_count", currentDrops - logged,
@@ -104,16 +107,19 @@ func log(logCtx context.Context, flags int64, level int64, depth int64, args ...
 	// Get caller trace if set
 	const skipTrace = 4 // 3 levels of logger calls + adjustment for runtime.Callers behavior
 
-	if trace := getTrace(depth, skipTrace); trace != "" {
-		logArgs = append([]any{trace}, args...)
+	var trace string
+	if depth > 0 {
+		trace = getTrace(depth, skipTrace)
 	}
 
 	// Create log record from arguments
 	record := logRecord{
-		LogCtx: logCtx,
-		Level:  level,
-		Flags:  flags,
-		Args:   logArgs,
+		LogCtx:    logCtx,
+		Flags:     flags,
+		TimeStamp: time.Now(),
+		Level:     level,
+		Trace:     trace,
+		Args:      logArgs,
 	}
 
 	// Process log record
@@ -169,7 +175,7 @@ func processLogs() {
 
 			// Create log entry and write
 			s := newSerializer()
-			data := s.serialize(record.Flags, record.Level, record.Args)
+			data := s.serialize(record.Flags, record.TimeStamp, record.Level, record.Trace, record.Args)
 
 			// Check file size and rotate if needed
 			currentFileSize := currentSize.Load()
