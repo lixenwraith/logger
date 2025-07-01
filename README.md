@@ -1,3 +1,5 @@
+** This package is not being actively developed or maintained, for updates refer to https://github.com/lixenwraith/log" **
+
 # Logger
 
 A buffered rotating logger for Go with advanced disk management, retention, and tracing capabilities.
